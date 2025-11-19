@@ -32,32 +32,7 @@ Open http://localhost:3000 in your browser. Edit files under `src/app/` and the 
    - Output Directory: `.next`.
 4. Deploy.
 
-### Optional cache refresh
 
-Add a nightly GitHub Action to fetch the latest Pokémon names:
-
-```yaml
-on:
-  schedule:
-    - cron: "0 3 * * *"
-
-jobs:
-  refresh:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 20
-      - run: npm ci
-      - run: npm run fetch:pokemon
-      - run: git config user.name "pokemon-bot"
-      - run: git config user.email "pokemon@example.com"
-      - run: git commit -am "Refresh Pokémon cache" || exit 0
-      - run: git push
-```
-
-That keeps `pokemon-list.json` fresh without manual runs.
 
 ## Scripts
 

@@ -1,36 +1,70 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Who's that Pokémon?
 
-## Getting Started
+Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round shows a hidden sprite; players must pick the correct Pokémon before the 8-second timer runs out. You can run solo, or enable the multi-team mode (Red, Blue, Yellow, Green) to pass the device around and keep a running score.
 
-First, run the development server:
+## Features
+
+- Loads Pokémon names from a local cache (`public/pokemon-list.json`) so autocomplete works offline.
+- Prefetches all sprites for the round up front, preventing mid-round loading hitches.
+- Silhouette effect while guessing, then reveals the sprite after your answer.
+- Adjustable game length (5/10/25 rounds) and persistent per-team scoreboards.
+- Mobile-friendly UI with dynamic theming based on the active team.
+
+## Getting started
 
 ```bash
+cd pokemonguessinggame
+npm install
+npm run fetch:pokemon   # refresh the cached name list (optional but recommended)
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Open http://localhost:3000 in your browser. Edit files under `src/app/` and the page will hot reload.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Deployment (Vercel)
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+1. Make sure `public/pokemon-list.json` is up to date (`npm run fetch:pokemon`).
+2. Push the project to GitHub/GitLab.
+3. In Vercel:
+   - Import the repo.
+   - Set **Root Directory** to `pokemonguessinggame`.
+   - Build Command: `npm run fetch:pokemon && npm run build`.
+   - Output Directory: `.next`.
+4. Deploy.
 
-## Learn More
+### Optional cache refresh
 
-To learn more about Next.js, take a look at the following resources:
+Add a nightly GitHub Action to fetch the latest Pokémon names:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```yaml
+on:
+  schedule:
+    - cron: "0 3 * * *"
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - run: npm ci
+      - run: npm run fetch:pokemon
+      - run: git config user.name "pokemon-bot"
+      - run: git config user.email "pokemon@example.com"
+      - run: git commit -am "Refresh Pokémon cache" || exit 0
+      - run: git push
+```
 
-## Deploy on Vercel
+That keeps `pokemon-list.json` fresh without manual runs.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Scripts
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+| Command | Description |
+| --- | --- |
+| `npm run dev` | Start dev server with Turbopack |
+| `npm run build` | Production build |
+| `npm run start` | Run production build |
+| `npm run lint` | ESLint |
+| `npm run fetch:pokemon` | Refresh cached Pokémon list |

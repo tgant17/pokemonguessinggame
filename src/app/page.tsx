@@ -430,12 +430,6 @@ export default function SpriteRushGame() {
   const timeProgress = useMemo(() => (timeLeft / QUESTION_TIME) * 100, [timeLeft]);
   const teamRoundDisplay = activeTeamData.rounds + (gameState === "playing" ? 1 : 0);
   const pendingRounds = activeTeamData.rounds + totalRounds;
-  const roomReadyToStart = useMemo(() => {
-    if (!activeRoom) return false;
-    const teamSet = new Set(activeRoom.players.map((player) => player.teamName));
-    return activeRoom.players.length >= 2 && teamSet.size >= 2;
-  }, [activeRoom]);
-
   const renderSpriteStage = () => {
     if (gameState === "loading") {
       return <div className="text-slate-400">Loading Pokémon data...</div>;

@@ -334,6 +334,12 @@ export default function SpriteRushGame() {
     setMode("multiplayer");
   }, [activeRoom, ensureTeamRegistered, joinAvatarSprite, joinCode, joinName, joinPokemon, joinTeamColor]);
 
+  const roomReadyToStart = useMemo(() => {
+    if (!activeRoom) return false;
+    const teamSet = new Set(activeRoom.players.map((player) => player.teamName));
+    return activeRoom.players.length >= 2 && teamSet.size >= 2;
+  }, [activeRoom]);
+
   const handleStartMultiplayer = useCallback(() => {
     if (!roomReadyToStart) {
       setLobbyMessage("You need at least two players on different teams before starting.");

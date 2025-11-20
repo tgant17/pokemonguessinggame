@@ -35,6 +35,23 @@ type TeamState = {
   rounds: number;
 };
 
+type RoomPlayer = {
+  username: string;
+  avatarPokemon: string;
+  avatarSprite?: string;
+  teamName: string;
+  teamColor: string;
+  isHost?: boolean;
+};
+
+type RoomState = {
+  code: string;
+  codePokemon: string;
+  codeSprite?: string | null;
+  players: RoomPlayer[];
+  started: boolean;
+};
+
 type RoundData = {
   options: PokemonSprite[];
   answer: PokemonSprite;
@@ -46,6 +63,19 @@ const TEAM_PRESETS: TeamState[] = [
   { name: "Yellow", color: "#facc15", score: 0, rounds: 0 },
   { name: "Green", color: "#22c55e", score: 0, rounds: 0 },
 ];
+
+const TEAM_COLOR_CHOICES = [
+  { name: "Crimson", color: "#ef4444" },
+  { name: "Azure", color: "#3b82f6" },
+  { name: "Verdant", color: "#22c55e" },
+  { name: "Sunbeam", color: "#f59e0b" },
+  { name: "Amethyst", color: "#a855f7" },
+  { name: "Rose", color: "#f43f5e" },
+  { name: "Cyan", color: "#06b6d4" },
+  { name: "Slate", color: "#475569" },
+];
+
+const ROOM_STORAGE_KEY = "sprite-rush-rooms";
 
 const QUESTION_TIME = 8;
 const SCORE_PER_SECOND = 12;
@@ -75,6 +105,40 @@ const shuffle = <T,>(array: T[]) => {
   return copy;
 };
 
+const spriteUrlFromCode = (code: string) => {
+  const dexNumber = parseInt(code, 10);
+  if (Number.isNaN(dexNumber) || dexNumber < 1 || dexNumber > 1010) return null;
+  return `https://assets.pokemon.com/assets/cms2/img/pokedex/full/${dexNumber.toString().padStart(3, "0")}.png`;
+};
+
+const safeParseRooms = (): Record<string, RoomState> => {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(ROOM_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, RoomState>) : {};
+  } catch {
+    return {};
+  }
+};
+
+const persistRooms = (rooms: Record<string, RoomState>) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ROOM_STORAGE_KEY, JSON.stringify(rooms));
+};
+
+const upsertRoomInStorage = (room: RoomState) => {
+  const rooms = safeParseRooms();
+  rooms[room.code] = room;
+  persistRooms(rooms);
+};
+
+const removeRoomFromStorage = (code: string | null) => {
+  if (!code) return;
+  const rooms = safeParseRooms();
+  delete rooms[code];
+  persistRooms(rooms);
+};
+
 export default function SpriteRushGame() {
   const [pokemonNames, setPokemonNames] = useState<string[]>([]);
   const [rounds, setRounds] = useState<RoundData[]>([]);
@@ -89,6 +153,21 @@ export default function SpriteRushGame() {
   const [teams, setTeams] = useState<TeamState[]>(TEAM_PRESETS);
   const [activeTeam, setActiveTeam] = useState<string>(TEAM_PRESETS[0].name);
   const [showTeams, setShowTeams] = useState(false);
+  const [mode, setMode] = useState<"single" | "multiplayer">("multiplayer");
+  const [multiplayerStep, setMultiplayerStep] = useState<
+    "menu" | "create" | "join" | "lobby"
+  >("menu");
+  const [activeRoom, setActiveRoom] = useState<RoomState | null>(null);
+  const [creatorName, setCreatorName] = useState("");
+  const [creatorPokemon, setCreatorPokemon] = useState("");
+  const [creatorTeamColor, setCreatorTeamColor] = useState<string>(TEAM_COLOR_CHOICES[0].color);
+  const [creatorAvatarSprite, setCreatorAvatarSprite] = useState<string | null>(null);
+  const [joinCode, setJoinCode] = useState("");
+  const [joinName, setJoinName] = useState("");
+  const [joinPokemon, setJoinPokemon] = useState("");
+  const [joinTeamColor, setJoinTeamColor] = useState<string>(TEAM_COLOR_CHOICES[1].color);
+  const [joinAvatarSprite, setJoinAvatarSprite] = useState<string | null>(null);
+  const [lobbyMessage, setLobbyMessage] = useState<string | null>(null);
 
   const currentRound = rounds[currentRoundIndex];
 
@@ -120,6 +199,34 @@ export default function SpriteRushGame() {
       return null;
     }
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    if (!creatorPokemon) {
+      setCreatorAvatarSprite(null);
+      return;
+    }
+    fetchPokemonSprite(creatorPokemon.toLowerCase()).then((sprite) => {
+      if (active) setCreatorAvatarSprite(sprite?.spriteUrl ?? null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [creatorPokemon, fetchPokemonSprite]);
+
+  useEffect(() => {
+    let active = true;
+    if (!joinPokemon) {
+      setJoinAvatarSprite(null);
+      return;
+    }
+    fetchPokemonSprite(joinPokemon.toLowerCase()).then((sprite) => {
+      if (active) setJoinAvatarSprite(sprite?.spriteUrl ?? null);
+    });
+    return () => {
+      active = false;
+    };
+  }, [joinPokemon, fetchPokemonSprite]);
 
   const buildRound = useCallback(async (): Promise<RoundData | null> => {
     if (!pokemonNames.length) return null;
@@ -164,6 +271,168 @@ export default function SpriteRushGame() {
     setGameState("playing");
     setIsPreparing(false);
   }, [buildRound, pokemonNames.length, totalRounds]);
+
+  const ensureTeamRegistered = useCallback((teamName: string, teamColor: string) => {
+    setTeams((prev) => {
+      const exists = prev.some((team) => team.name === teamName);
+      if (exists) return prev;
+      return [...prev, { name: teamName, color: teamColor, score: 0, rounds: 0 }];
+    });
+  }, []);
+
+  const resetMultiplayer = useCallback(() => {
+    removeRoomFromStorage(activeRoom?.code ?? null);
+    setMode("single");
+    setMultiplayerStep("menu");
+    setActiveRoom(null);
+    setCreatorName("");
+    setCreatorPokemon("");
+    setJoinName("");
+    setJoinPokemon("");
+    setJoinCode("");
+    setLobbyMessage(null);
+    setShowTeams(false);
+    setTeams(TEAM_PRESETS);
+    setActiveTeam(TEAM_PRESETS[0].name);
+  }, [activeRoom?.code]);
+
+  const buildRoomCode = useCallback(async () => {
+    if (!pokemonNames.length) return { code: "0001", codePokemon: "missingno", codeSprite: null };
+    const rooms = safeParseRooms();
+    let attempt = 0;
+    while (attempt < 12) {
+      const index = Math.floor(Math.random() * pokemonNames.length);
+      const dexNumber = index + 1;
+      const code = dexNumber.toString().padStart(4, "0");
+      if (!rooms[code]) {
+        const spriteUrl = spriteUrlFromCode(code);
+        return { code, codePokemon: pokemonNames[index], codeSprite: spriteUrl };
+      }
+      attempt += 1;
+    }
+    return { code: "9999", codePokemon: pokemonNames[0], codeSprite: null };
+  }, [pokemonNames]);
+
+  const handleCreateRoom = useCallback(async () => {
+    if (!creatorName || !creatorPokemon) {
+      setLobbyMessage("Please choose a username and Pokémon to host a room.");
+      return;
+    }
+    const { code, codePokemon, codeSprite } = await buildRoomCode();
+    const teamChoice = TEAM_COLOR_CHOICES.find((choice) => choice.color === creatorTeamColor) ?? TEAM_COLOR_CHOICES[0];
+    const hostTeamName = `${teamChoice.name} Team`;
+    const hostPlayer: RoomPlayer = {
+      username: creatorName,
+      avatarPokemon: creatorPokemon,
+      avatarSprite: creatorAvatarSprite ?? undefined,
+      teamColor: creatorTeamColor,
+      teamName: hostTeamName,
+      isHost: true,
+    };
+    const newRoom: RoomState = { code, codePokemon, codeSprite, players: [hostPlayer], started: false };
+    setActiveRoom(newRoom);
+    upsertRoomInStorage(newRoom);
+    setLobbyMessage(null);
+    setMultiplayerStep("lobby");
+    setMode("multiplayer");
+    ensureTeamRegistered(hostTeamName, creatorTeamColor);
+    setActiveTeam(hostTeamName);
+    setShowTeams(true);
+    setJoinCode(code);
+  }, [buildRoomCode, creatorAvatarSprite, creatorName, creatorPokemon, creatorTeamColor, ensureTeamRegistered]);
+
+  const handleJoinRoom = useCallback(() => {
+    const trimmedCode = joinCode.trim();
+    if (!trimmedCode) {
+      setLobbyMessage("Enter the 4-digit Pokédex code to join a room.");
+      return;
+    }
+    if (trimmedCode.length !== 4) {
+      setLobbyMessage("Room codes are always four digits (pad with zeros if needed).");
+      return;
+    }
+    if (!joinName || !joinPokemon) {
+      setLobbyMessage("Please enter your username and Pokémon to join.");
+      return;
+    }
+
+    const rooms = safeParseRooms();
+    const room = rooms[trimmedCode];
+    if (!room) {
+      setLobbyMessage("No room found for that code. Ask the host to share a fresh one.");
+      return;
+    }
+    if (room.players.length >= 8) {
+      setLobbyMessage("This room is full (8 player limit).");
+      return;
+    }
+    const teamChoice = TEAM_COLOR_CHOICES.find((choice) => choice.color === joinTeamColor) ?? TEAM_COLOR_CHOICES[0];
+    const teamName = `${teamChoice.name} Team`;
+    const teamCount = room.players.filter((player) => player.teamName === teamName).length;
+    if (teamCount >= 4) {
+      setLobbyMessage("That team already has 4 players. Pick another color.");
+      return;
+    }
+    const newPlayer: RoomPlayer = {
+      username: joinName,
+      avatarPokemon: joinPokemon,
+      avatarSprite: joinAvatarSprite ?? undefined,
+      teamColor: joinTeamColor,
+      teamName,
+    };
+    const updatedRoom: RoomState = {
+      ...room,
+      codeSprite: room.codeSprite ?? spriteUrlFromCode(room.code),
+      players: [...room.players, newPlayer],
+    };
+    upsertRoomInStorage(updatedRoom);
+    setActiveRoom(updatedRoom);
+    ensureTeamRegistered(teamName, joinTeamColor);
+    setLobbyMessage(`${joinName} joined ${teamName}!`);
+    setJoinName("");
+    setJoinPokemon("");
+    setJoinCode(updatedRoom.code);
+    setMode("multiplayer");
+    setMultiplayerStep("lobby");
+  }, [ensureTeamRegistered, joinAvatarSprite, joinCode, joinName, joinPokemon, joinTeamColor]);
+
+  const roomReadyToStart = useMemo(() => {
+    if (!activeRoom) return false;
+    const teamSet = new Set(activeRoom.players.map((player) => player.teamName));
+    return activeRoom.players.length >= 2 && teamSet.size >= 2;
+  }, [activeRoom]);
+
+  useEffect(() => {
+    if (activeRoom) {
+      upsertRoomInStorage(activeRoom);
+    }
+  }, [activeRoom]);
+
+  useEffect(() => {
+    const onStorageChange = (event: StorageEvent) => {
+      if (event.key !== ROOM_STORAGE_KEY || !activeRoom?.code) return;
+      const rooms = safeParseRooms();
+      const updated = rooms[activeRoom.code];
+      if (updated) {
+        setActiveRoom(updated);
+      } else {
+        setActiveRoom(null);
+        setMultiplayerStep("menu");
+      }
+    };
+    window.addEventListener("storage", onStorageChange);
+    return () => window.removeEventListener("storage", onStorageChange);
+  }, [activeRoom?.code]);
+
+  const handleStartMultiplayer = useCallback(() => {
+    if (!roomReadyToStart) {
+      setLobbyMessage("You need at least two players on different teams before starting.");
+      return;
+    }
+    setActiveRoom((prev) => (prev ? { ...prev, started: true } : prev));
+    setLobbyMessage("The host launched the match! Pass turns between teams as rounds progress.");
+    prepareRounds();
+  }, [prepareRounds, roomReadyToStart]);
 
   const advanceRound = useCallback(() => {
     setCurrentRoundIndex((prev) => {
@@ -245,7 +514,6 @@ export default function SpriteRushGame() {
   const timeProgress = useMemo(() => (timeLeft / QUESTION_TIME) * 100, [timeLeft]);
   const teamRoundDisplay = activeTeamData.rounds + (gameState === "playing" ? 1 : 0);
   const pendingRounds = activeTeamData.rounds + totalRounds;
-
   const renderSpriteStage = () => {
     if (gameState === "loading") {
       return <div className="text-slate-400">Loading Pokémon data...</div>;
@@ -325,6 +593,353 @@ export default function SpriteRushGame() {
     return null;
   };
 
+  const renderAvatarPreview = (sprite?: string | null, label?: string) => (
+    <div className="flex items-center gap-3 rounded-2xl border border-white/10 bg-slate-900/50 p-3 text-left">
+      {sprite ? (
+        <div className="relative h-12 w-12 overflow-hidden rounded-xl border border-white/10 bg-slate-950/80">
+          <Image src={sprite} alt="Selected Pokémon" fill sizes="48px" className="object-contain" />
+        </div>
+      ) : (
+        <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-dashed border-white/10 bg-slate-950/80 text-xs text-slate-400">
+          PFP
+        </div>
+      )}
+      <div className="text-xs text-slate-300">
+        <p className="font-semibold text-white">{label ?? "Avatar preview"}</p>
+        <p className="text-slate-400">Pick any Pokémon name to use as your picture.</p>
+      </div>
+    </div>
+  );
+
+  const renderPokemonSearchInput = (
+    value: string,
+    onChange: (next: string) => void,
+    placeholder: string,
+    accentColor: string,
+  ) => {
+    const normalized = value.toLowerCase();
+    const suggestions = (normalized ? pokemonNames.filter((name) => name.includes(normalized)) : pokemonNames).slice(0, 8);
+    return (
+      <div className="relative">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
+          placeholder={placeholder}
+        />
+        {suggestions.length > 0 && (
+          <div className="absolute z-10 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-white/10 bg-slate-900/95 text-left shadow-xl">
+            {suggestions.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => onChange(name)}
+                className="flex w-full items-center justify-between px-3 py-2 text-sm capitalize text-slate-200 transition hover:bg-slate-800/80"
+              >
+                <span>{name}</span>
+                <span className="text-[10px] uppercase tracking-widest" style={{ color: accentColor }}>
+                  Select
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  const renderColorChoices = (selected: string, onSelect: (value: string) => void) => (
+    <div className="flex flex-wrap gap-2">
+      {TEAM_COLOR_CHOICES.map((choice) => (
+        <button
+          key={choice.color}
+          type="button"
+          onClick={() => onSelect(choice.color)}
+          className={`flex items-center gap-2 rounded-2xl border px-3 py-2 text-xs font-semibold transition ${
+            selected === choice.color ? "ring-2 ring-white" : "border-white/10"
+          }`}
+          style={{ backgroundColor: `${choice.color}22`, borderColor: `${choice.color}66` }}
+        >
+          <span
+            className="h-3 w-3 rounded-full"
+            style={{ backgroundColor: choice.color, boxShadow: `0 0 0 3px ${choice.color}33` }}
+          />
+          {choice.name}
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderMultiplayerPanel = () => (
+    <section className="rounded-3xl border border-white/10 bg-slate-950/50 p-6 shadow-emerald-500/10">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <p className="text-xs uppercase tracking-[0.4em] text-slate-400">Multiplayer lobby</p>
+          <p className="text-lg font-semibold text-white">Create or join a shared session</p>
+        </div>
+        {mode === "multiplayer" && (
+          <span className="rounded-full border border-emerald-400/40 bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-200">
+            Multiplayer active
+          </span>
+        )}
+      </div>
+
+      {multiplayerStep === "menu" && (
+        <div className="mt-4 grid gap-3 sm:grid-cols-3">
+          <button
+            type="button"
+            onClick={() => {
+              setMode("multiplayer");
+              setMultiplayerStep("create");
+            }}
+            className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-emerald-400/60"
+          >
+            Host a room
+            <p className="text-xs font-normal text-slate-400">Generate a Pokédex code and pick your team color.</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setMode("multiplayer");
+              setMultiplayerStep("join");
+            }}
+            className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-sky-400/60"
+          >
+            Join a room
+            <p className="text-xs font-normal text-slate-400">Enter a 4-digit Pokédex code and choose your team.</p>
+          </button>
+          <button
+            type="button"
+            onClick={resetMultiplayer}
+            className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-white/60"
+          >
+            Back to solo play
+            <p className="text-xs font-normal text-slate-400">Return to classic single-player rounds.</p>
+          </button>
+        </div>
+      )}
+
+      {multiplayerStep === "create" && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.1fr,1fr]">
+          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+            <p className="text-sm font-semibold text-white">Host details</p>
+            <div className="mt-3 grid gap-3 text-sm text-slate-200">
+              <label className="space-y-1">
+                <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Username</span>
+                <input
+                  value={creatorName}
+                  onChange={(e) => setCreatorName(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
+                  placeholder="Ash, Misty, or your own nickname"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Pokémon avatar</span>
+                {renderPokemonSearchInput(creatorPokemon, setCreatorPokemon, "Search Pikachu, Charizard, Bulbasaur...", creatorTeamColor)}
+              </label>
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Team color</p>
+                {renderColorChoices(creatorTeamColor, setCreatorTeamColor)}
+              </div>
+              {renderAvatarPreview(creatorAvatarSprite, creatorPokemon || "Avatar preview")}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleCreateRoom}
+                  className="flex-1 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-lg shadow-emerald-500/30"
+                >
+                  Generate room
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMultiplayerStep("menu")}
+                  className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Cancel
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/5 p-4">
+            <p className="text-sm font-semibold text-emerald-100">How it works</p>
+            <ul className="mt-2 space-y-2 text-xs text-emerald-50/80">
+              <li>• We&apos;ll generate a room using a random Pokédex number as the code.</li>
+              <li>• Up to 8 players can join; teams cap at 4 players each.</li>
+              <li>• The host picks their team color and starts the match once two teams have at least one player.</li>
+            </ul>
+          </div>
+        </div>
+      )}
+
+      {multiplayerStep === "join" && (
+        <div className="mt-4 grid gap-4 md:grid-cols-[1.1fr,1fr]">
+          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+            <p className="text-sm font-semibold text-white">Join a lobby</p>
+            <div className="mt-3 grid gap-3 text-sm text-slate-200">
+              <label className="space-y-1">
+                <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Room code</span>
+                <input
+                  value={joinCode}
+                  onChange={(e) => setJoinCode(e.target.value.replace(/[^0-9]/g, ""))}
+                  maxLength={4}
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                  placeholder="Four digits (e.g. 0025)"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Username</span>
+                <input
+                  value={joinName}
+                  onChange={(e) => setJoinName(e.target.value)}
+                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
+                  placeholder="Your in-game name"
+                />
+              </label>
+              <label className="space-y-1">
+                <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Pokémon avatar</span>
+                {renderPokemonSearchInput(joinPokemon, setJoinPokemon, "Search for Snorlax, Eevee, Gengar...", joinTeamColor)}
+              </label>
+              <div className="space-y-2">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Pick your team</p>
+                {renderColorChoices(joinTeamColor, setJoinTeamColor)}
+              </div>
+              {renderAvatarPreview(joinAvatarSprite, joinPokemon || "Avatar preview")}
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleJoinRoom}
+                  className="flex-1 rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-sky-950 shadow-lg shadow-sky-500/30"
+                >
+                  Join room
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setMultiplayerStep("menu")}
+                  className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-white"
+                >
+                  Back
+                </button>
+              </div>
+            </div>
+          </div>
+          <div className="rounded-2xl border border-sky-400/30 bg-sky-500/5 p-4">
+            <p className="text-sm font-semibold text-sky-100">Need a code?</p>
+            <p className="mt-2 text-xs text-sky-50/80">
+              Ask the host for their Pokédex number code. Each room uses a random Pokémon entry as the code and can welcome up to
+              8 players across two or more teams.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {multiplayerStep === "lobby" && activeRoom && (
+        <div className="mt-4 grid gap-4 lg:grid-cols-[1.3fr,1fr]">
+          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center gap-3">
+                {activeRoom.codeSprite ? (
+                  <div className="relative h-14 w-14 overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
+                    <Image src={activeRoom.codeSprite} alt={activeRoom.codePokemon} fill sizes="56px" className="object-contain" />
+                  </div>
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-white/10 bg-slate-950/70 text-xs capitalize text-slate-300">
+                    {activeRoom.codePokemon}
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Room code</p>
+                  <p className="text-3xl font-bold text-white">#{activeRoom.code}</p>
+                  <p className="text-xs text-slate-400">Share this Pokédex number with friends to invite them.</p>
+                </div>
+              </div>
+              <div className="text-right">
+                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Capacity</p>
+                <p className="text-lg font-semibold text-white">{activeRoom.players.length} / 8 players</p>
+              </div>
+            </div>
+
+            <div className="mt-4 grid gap-3">
+              {activeRoom.players.map((player) => (
+                <div
+                  key={`${player.username}-${player.teamName}`}
+                  className="flex items-center justify-between rounded-2xl border border-white/10 bg-slate-950/50 px-4 py-3"
+                  style={{ boxShadow: `0 8px 20px ${player.teamColor}22` }}
+                >
+                  <div className="flex items-center gap-3">
+                    {player.avatarSprite ? (
+                      <div className="relative h-12 w-12 overflow-hidden rounded-xl border border-white/10 bg-slate-900/60">
+                        <Image src={player.avatarSprite} alt={player.avatarPokemon} fill sizes="48px" className="object-contain" />
+                      </div>
+                    ) : (
+                      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-dashed border-white/10 bg-slate-900/60 text-xs text-slate-400">
+                        {player.avatarPokemon}
+                      </div>
+                    )}
+                    <div>
+                      <p className="text-sm font-semibold text-white">{player.username}</p>
+                      <p className="text-xs capitalize text-slate-400">As {player.avatarPokemon}</p>
+                    </div>
+                  </div>
+                  <div className="text-right text-xs font-semibold text-white">
+                    <span className="mr-2 rounded-full px-2 py-1" style={{ backgroundColor: `${player.teamColor}33`, color: player.teamColor }}>
+                      {player.teamName}
+                    </span>
+                    {player.isHost && <span className="text-amber-300">Host</span>}
+                  </div>
+                </div>
+              ))}
+              {activeRoom.players.length < 8 && (
+                <div className="rounded-2xl border border-dashed border-white/10 bg-slate-950/30 px-4 py-3 text-xs text-slate-400">
+                  Waiting for more trainers... share the code to add up to {8 - activeRoom.players.length} more.
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-400/30 bg-emerald-500/5 p-4">
+            <p className="text-sm font-semibold text-emerald-100">Ready check</p>
+            <p className="mt-2 text-xs text-emerald-50/80">
+              The host starts the match once at least two teams have a player. Each team is capped at 4 people.
+            </p>
+            <div className="mt-3 grid gap-2 text-xs text-emerald-50/80">
+              <p>• Teams active: {activeRoom ? new Set(activeRoom.players.map((p) => p.teamName)).size : 0}</p>
+              <p>• Players joined: {activeRoom?.players.length ?? 0}</p>
+              <p>• Status: {activeRoom?.started ? "Game live" : "Waiting for host"}</p>
+            </div>
+            <div className="mt-4 flex flex-col gap-2">
+              <button
+                type="button"
+                disabled={!roomReadyToStart}
+                onClick={handleStartMultiplayer}
+                className="rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-emerald-950 shadow-lg shadow-emerald-500/30 disabled:cursor-not-allowed disabled:bg-emerald-700"
+              >
+                {activeRoom.started ? "Restart match" : "Start match"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setMultiplayerStep("join")}
+                className="rounded-xl border border-white/10 px-4 py-2 text-sm font-semibold text-white"
+              >
+                Join from this device
+              </button>
+              <button
+                type="button"
+                onClick={resetMultiplayer}
+                className="rounded-xl border border-rose-400/40 bg-rose-500/10 px-4 py-2 text-sm font-semibold text-rose-100"
+              >
+                Leave room
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {lobbyMessage && (
+        <div className="mt-3 rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-sm text-slate-200">{lobbyMessage}</div>
+      )}
+    </section>
+  );
+
   return (
     <main
       className="min-h-screen pb-12 text-white transition-colors"
@@ -338,9 +953,11 @@ export default function SpriteRushGame() {
             Who&apos;s that Pokémon?
           </h1>
           <p className="text-base text-slate-300">
-            Study the sprite and choose the matching Pokémon before the 8-second clock runs out. Quicker answers earn more points!
+            Jump straight into multiplayer: host a room, share a Pokédex code, and squad up. Prefer to warm up solo? Stay in single-player and swap anytime.
           </p>
         </header>
+
+        {renderMultiplayerPanel()}
 
         <section className="grid gap-4 text-sm uppercase tracking-wide text-slate-300 sm:grid-cols-3">
           <div
@@ -478,6 +1095,7 @@ export default function SpriteRushGame() {
             </div>
           )}
         </section>
+
       </div>
     </main>
   );

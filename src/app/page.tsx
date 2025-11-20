@@ -45,8 +45,9 @@ type RoomPlayer = {
 };
 
 type RoomState = {
-  code: number;
+  code: string;
   codePokemon: string;
+  codeSprite?: string | null;
   players: RoomPlayer[];
   started: boolean;
 };
@@ -73,6 +74,8 @@ const TEAM_COLOR_CHOICES = [
   { name: "Cyan", color: "#06b6d4" },
   { name: "Slate", color: "#475569" },
 ];
+
+const ROOM_STORAGE_KEY = "sprite-rush-rooms";
 
 const QUESTION_TIME = 8;
 const SCORE_PER_SECOND = 12;
@@ -102,6 +105,40 @@ const shuffle = <T,>(array: T[]) => {
   return copy;
 };
 
+const spriteUrlFromCode = (code: string) => {
+  const dexNumber = parseInt(code, 10);
+  if (Number.isNaN(dexNumber) || dexNumber < 1 || dexNumber > 1010) return null;
+  return `https://assets.pokemon.com/assets/cms2/img/pokedex/full/${dexNumber.toString().padStart(3, "0")}.png`;
+};
+
+const safeParseRooms = (): Record<string, RoomState> => {
+  if (typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(ROOM_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as Record<string, RoomState>) : {};
+  } catch {
+    return {};
+  }
+};
+
+const persistRooms = (rooms: Record<string, RoomState>) => {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(ROOM_STORAGE_KEY, JSON.stringify(rooms));
+};
+
+const upsertRoomInStorage = (room: RoomState) => {
+  const rooms = safeParseRooms();
+  rooms[room.code] = room;
+  persistRooms(rooms);
+};
+
+const removeRoomFromStorage = (code: string | null) => {
+  if (!code) return;
+  const rooms = safeParseRooms();
+  delete rooms[code];
+  persistRooms(rooms);
+};
+
 export default function SpriteRushGame() {
   const [pokemonNames, setPokemonNames] = useState<string[]>([]);
   const [rounds, setRounds] = useState<RoundData[]>([]);
@@ -116,7 +153,7 @@ export default function SpriteRushGame() {
   const [teams, setTeams] = useState<TeamState[]>(TEAM_PRESETS);
   const [activeTeam, setActiveTeam] = useState<string>(TEAM_PRESETS[0].name);
   const [showTeams, setShowTeams] = useState(false);
-  const [mode, setMode] = useState<"single" | "multiplayer">("single");
+  const [mode, setMode] = useState<"single" | "multiplayer">("multiplayer");
   const [multiplayerStep, setMultiplayerStep] = useState<
     "menu" | "create" | "join" | "lobby"
   >("menu");
@@ -244,6 +281,7 @@ export default function SpriteRushGame() {
   }, []);
 
   const resetMultiplayer = useCallback(() => {
+    removeRoomFromStorage(activeRoom?.code ?? null);
     setMode("single");
     setMultiplayerStep("menu");
     setActiveRoom(null);
@@ -256,20 +294,31 @@ export default function SpriteRushGame() {
     setShowTeams(false);
     setTeams(TEAM_PRESETS);
     setActiveTeam(TEAM_PRESETS[0].name);
-  }, []);
+  }, [activeRoom?.code]);
 
-  const buildRoomCode = useCallback(() => {
-    if (!pokemonNames.length) return { code: Math.floor(Math.random() * 1010) + 1, codePokemon: "missingno" };
-    const index = Math.floor(Math.random() * pokemonNames.length);
-    return { code: index + 1, codePokemon: pokemonNames[index] };
+  const buildRoomCode = useCallback(async () => {
+    if (!pokemonNames.length) return { code: "0001", codePokemon: "missingno", codeSprite: null };
+    const rooms = safeParseRooms();
+    let attempt = 0;
+    while (attempt < 12) {
+      const index = Math.floor(Math.random() * pokemonNames.length);
+      const dexNumber = index + 1;
+      const code = dexNumber.toString().padStart(4, "0");
+      if (!rooms[code]) {
+        const spriteUrl = spriteUrlFromCode(code);
+        return { code, codePokemon: pokemonNames[index], codeSprite: spriteUrl };
+      }
+      attempt += 1;
+    }
+    return { code: "9999", codePokemon: pokemonNames[0], codeSprite: null };
   }, [pokemonNames]);
 
-  const handleCreateRoom = useCallback(() => {
+  const handleCreateRoom = useCallback(async () => {
     if (!creatorName || !creatorPokemon) {
       setLobbyMessage("Please choose a username and Pokémon to host a room.");
       return;
     }
-    const { code, codePokemon } = buildRoomCode();
+    const { code, codePokemon, codeSprite } = await buildRoomCode();
     const teamChoice = TEAM_COLOR_CHOICES.find((choice) => choice.color === creatorTeamColor) ?? TEAM_COLOR_CHOICES[0];
     const hostTeamName = `${teamChoice.name} Team`;
     const hostPlayer: RoomPlayer = {
@@ -280,36 +329,46 @@ export default function SpriteRushGame() {
       teamName: hostTeamName,
       isHost: true,
     };
-    setActiveRoom({ code, codePokemon, players: [hostPlayer], started: false });
+    const newRoom: RoomState = { code, codePokemon, codeSprite, players: [hostPlayer], started: false };
+    setActiveRoom(newRoom);
+    upsertRoomInStorage(newRoom);
     setLobbyMessage(null);
     setMultiplayerStep("lobby");
     setMode("multiplayer");
     ensureTeamRegistered(hostTeamName, creatorTeamColor);
     setActiveTeam(hostTeamName);
     setShowTeams(true);
-    setJoinCode(code.toString());
+    setJoinCode(code);
   }, [buildRoomCode, creatorAvatarSprite, creatorName, creatorPokemon, creatorTeamColor, ensureTeamRegistered]);
 
   const handleJoinRoom = useCallback(() => {
-    if (!activeRoom) {
-      setLobbyMessage("No active room found. Ask the host to create one first.");
+    const trimmedCode = joinCode.trim();
+    if (!trimmedCode) {
+      setLobbyMessage("Enter the 4-digit Pokédex code to join a room.");
       return;
     }
-    if (parseInt(joinCode, 10) !== activeRoom.code) {
-      setLobbyMessage("Incorrect room code. Check with the host and try again.");
+    if (trimmedCode.length !== 4) {
+      setLobbyMessage("Room codes are always four digits (pad with zeros if needed).");
       return;
     }
     if (!joinName || !joinPokemon) {
       setLobbyMessage("Please enter your username and Pokémon to join.");
       return;
     }
-    if (activeRoom.players.length >= 8) {
+
+    const rooms = safeParseRooms();
+    const room = rooms[trimmedCode];
+    if (!room) {
+      setLobbyMessage("No room found for that code. Ask the host to share a fresh one.");
+      return;
+    }
+    if (room.players.length >= 8) {
       setLobbyMessage("This room is full (8 player limit).");
       return;
     }
     const teamChoice = TEAM_COLOR_CHOICES.find((choice) => choice.color === joinTeamColor) ?? TEAM_COLOR_CHOICES[0];
     const teamName = `${teamChoice.name} Team`;
-    const teamCount = activeRoom.players.filter((player) => player.teamName === teamName).length;
+    const teamCount = room.players.filter((player) => player.teamName === teamName).length;
     if (teamCount >= 4) {
       setLobbyMessage("That team already has 4 players. Pick another color.");
       return;
@@ -322,23 +381,48 @@ export default function SpriteRushGame() {
       teamName,
     };
     const updatedRoom: RoomState = {
-      ...activeRoom,
-      players: [...activeRoom.players, newPlayer],
+      ...room,
+      codeSprite: room.codeSprite ?? spriteUrlFromCode(room.code),
+      players: [...room.players, newPlayer],
     };
+    upsertRoomInStorage(updatedRoom);
     setActiveRoom(updatedRoom);
     ensureTeamRegistered(teamName, joinTeamColor);
     setLobbyMessage(`${joinName} joined ${teamName}!`);
     setJoinName("");
     setJoinPokemon("");
-    setJoinCode(activeRoom.code.toString());
+    setJoinCode(updatedRoom.code);
     setMode("multiplayer");
-  }, [activeRoom, ensureTeamRegistered, joinAvatarSprite, joinCode, joinName, joinPokemon, joinTeamColor]);
+    setMultiplayerStep("lobby");
+  }, [ensureTeamRegistered, joinAvatarSprite, joinCode, joinName, joinPokemon, joinTeamColor]);
 
   const roomReadyToStart = useMemo(() => {
     if (!activeRoom) return false;
     const teamSet = new Set(activeRoom.players.map((player) => player.teamName));
     return activeRoom.players.length >= 2 && teamSet.size >= 2;
   }, [activeRoom]);
+
+  useEffect(() => {
+    if (activeRoom) {
+      upsertRoomInStorage(activeRoom);
+    }
+  }, [activeRoom]);
+
+  useEffect(() => {
+    const onStorageChange = (event: StorageEvent) => {
+      if (event.key !== ROOM_STORAGE_KEY || !activeRoom?.code) return;
+      const rooms = safeParseRooms();
+      const updated = rooms[activeRoom.code];
+      if (updated) {
+        setActiveRoom(updated);
+      } else {
+        setActiveRoom(null);
+        setMultiplayerStep("menu");
+      }
+    };
+    window.addEventListener("storage", onStorageChange);
+    return () => window.removeEventListener("storage", onStorageChange);
+  }, [activeRoom?.code]);
 
   const handleStartMultiplayer = useCallback(() => {
     if (!roomReadyToStart) {
@@ -527,6 +611,43 @@ export default function SpriteRushGame() {
     </div>
   );
 
+  const renderPokemonSearchInput = (
+    value: string,
+    onChange: (next: string) => void,
+    placeholder: string,
+    accentColor: string,
+  ) => {
+    const normalized = value.toLowerCase();
+    const suggestions = (normalized ? pokemonNames.filter((name) => name.includes(normalized)) : pokemonNames).slice(0, 8);
+    return (
+      <div className="relative">
+        <input
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
+          placeholder={placeholder}
+        />
+        {suggestions.length > 0 && (
+          <div className="absolute z-10 mt-1 max-h-52 w-full overflow-auto rounded-xl border border-white/10 bg-slate-900/95 text-left shadow-xl">
+            {suggestions.map((name) => (
+              <button
+                key={name}
+                type="button"
+                onClick={() => onChange(name)}
+                className="flex w-full items-center justify-between px-3 py-2 text-sm capitalize text-slate-200 transition hover:bg-slate-800/80"
+              >
+                <span>{name}</span>
+                <span className="text-[10px] uppercase tracking-widest" style={{ color: accentColor }}>
+                  Select
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const renderColorChoices = (selected: string, onSelect: (value: string) => void) => (
     <div className="flex flex-wrap gap-2">
       {TEAM_COLOR_CHOICES.map((choice) => (
@@ -567,7 +688,10 @@ export default function SpriteRushGame() {
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <button
             type="button"
-            onClick={() => setMultiplayerStep("create")}
+            onClick={() => {
+              setMode("multiplayer");
+              setMultiplayerStep("create");
+            }}
             className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-emerald-400/60"
           >
             Host a room
@@ -575,11 +699,14 @@ export default function SpriteRushGame() {
           </button>
           <button
             type="button"
-            onClick={() => setMultiplayerStep("join")}
+            onClick={() => {
+              setMode("multiplayer");
+              setMultiplayerStep("join");
+            }}
             className="rounded-2xl border border-white/10 bg-slate-900/60 px-4 py-3 text-left text-sm font-semibold text-white transition hover:border-sky-400/60"
           >
             Join a room
-            <p className="text-xs font-normal text-slate-400">Enter a 1-4 digit Pokédex code and choose your team.</p>
+            <p className="text-xs font-normal text-slate-400">Enter a 4-digit Pokédex code and choose your team.</p>
           </button>
           <button
             type="button"
@@ -608,12 +735,7 @@ export default function SpriteRushGame() {
               </label>
               <label className="space-y-1">
                 <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Pokémon avatar</span>
-                <input
-                  value={creatorPokemon}
-                  onChange={(e) => setCreatorPokemon(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-emerald-400"
-                  placeholder="pikachu"
-                />
+                {renderPokemonSearchInput(creatorPokemon, setCreatorPokemon, "Search Pikachu, Charizard, Bulbasaur...", creatorTeamColor)}
               </label>
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Team color</p>
@@ -661,7 +783,7 @@ export default function SpriteRushGame() {
                   onChange={(e) => setJoinCode(e.target.value.replace(/[^0-9]/g, ""))}
                   maxLength={4}
                   className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                  placeholder="Dex number (e.g. 25)"
+                  placeholder="Four digits (e.g. 0025)"
                 />
               </label>
               <label className="space-y-1">
@@ -675,12 +797,7 @@ export default function SpriteRushGame() {
               </label>
               <label className="space-y-1">
                 <span className="text-xs uppercase tracking-[0.3em] text-slate-400">Pokémon avatar</span>
-                <input
-                  value={joinPokemon}
-                  onChange={(e) => setJoinPokemon(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white outline-none focus:border-sky-400"
-                  placeholder="snorlax"
-                />
+                {renderPokemonSearchInput(joinPokemon, setJoinPokemon, "Search for Snorlax, Eevee, Gengar...", joinTeamColor)}
               </label>
               <div className="space-y-2">
                 <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Pick your team</p>
@@ -719,13 +836,21 @@ export default function SpriteRushGame() {
         <div className="mt-4 grid gap-4 lg:grid-cols-[1.3fr,1fr]">
           <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4">
             <div className="flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Room code</p>
-                <p className="text-3xl font-bold text-white">
-                  #{activeRoom.code}
-                  <span className="ml-2 text-sm font-normal uppercase text-slate-400">({activeRoom.codePokemon})</span>
-                </p>
-                <p className="text-xs text-slate-400">Share this Pokédex number with friends to invite them.</p>
+              <div className="flex items-center gap-3">
+                {activeRoom.codeSprite ? (
+                  <div className="relative h-14 w-14 overflow-hidden rounded-xl border border-white/10 bg-slate-950/70">
+                    <Image src={activeRoom.codeSprite} alt={activeRoom.codePokemon} fill sizes="56px" className="object-contain" />
+                  </div>
+                ) : (
+                  <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-white/10 bg-slate-950/70 text-xs capitalize text-slate-300">
+                    {activeRoom.codePokemon}
+                  </div>
+                )}
+                <div>
+                  <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Room code</p>
+                  <p className="text-3xl font-bold text-white">#{activeRoom.code}</p>
+                  <p className="text-xs text-slate-400">Share this Pokédex number with friends to invite them.</p>
+                </div>
               </div>
               <div className="text-right">
                 <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Capacity</p>
@@ -828,9 +953,11 @@ export default function SpriteRushGame() {
             Who&apos;s that Pokémon?
           </h1>
           <p className="text-base text-slate-300">
-            Study the sprite and choose the matching Pokémon before the 8-second clock runs out. Quicker answers earn more points!
+            Jump straight into multiplayer: host a room, share a Pokédex code, and squad up. Prefer to warm up solo? Stay in single-player and swap anytime.
           </p>
         </header>
+
+        {renderMultiplayerPanel()}
 
         <section className="grid gap-4 text-sm uppercase tracking-wide text-slate-300 sm:grid-cols-3">
           <div
@@ -969,7 +1096,6 @@ export default function SpriteRushGame() {
           )}
         </section>
 
-        {renderMultiplayerPanel()}
       </div>
     </main>
   );

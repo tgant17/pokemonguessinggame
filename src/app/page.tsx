@@ -47,7 +47,9 @@ const TEAM_PRESETS: TeamState[] = [
   { name: "Green", color: "#22c55e", score: 0, rounds: 0 },
 ];
 
-const QUESTION_TIME = 8;
+const DEFAULT_QUESTION_TIME = 8;
+const ROUND_OPTIONS = [5, 10, 25];
+const TIMER_OPTIONS = [5, 8, 10, 15];
 const SCORE_PER_SECOND = 12;
 const PENALTY_WRONG = 15;
 const PENALTY_TIMEOUT = 12;
@@ -80,7 +82,8 @@ export default function SpriteRushGame() {
   const [rounds, setRounds] = useState<RoundData[]>([]);
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
   const [totalRounds, setTotalRounds] = useState(5);
-  const [timeLeft, setTimeLeft] = useState(QUESTION_TIME);
+  const [questionTime, setQuestionTime] = useState(DEFAULT_QUESTION_TIME);
+  const [timeLeft, setTimeLeft] = useState(DEFAULT_QUESTION_TIME);
   const [score, setScore] = useState(0);
   const [status, setStatus] = useState<"idle" | "correct" | "wrong" | "timeout">("idle");
   const [gameState, setGameState] = useState<"loading" | "ready" | "playing" | "finished">("loading");
@@ -159,11 +162,11 @@ export default function SpriteRushGame() {
     setRounds(builtRounds);
     setCurrentRoundIndex(0);
     setScore(0);
-    setTimeLeft(QUESTION_TIME);
+    setTimeLeft(questionTime);
     setStatus("idle");
     setGameState("playing");
     setIsPreparing(false);
-  }, [buildRound, pokemonNames.length, totalRounds]);
+  }, [buildRound, pokemonNames.length, totalRounds, questionTime]);
 
   const advanceRound = useCallback(() => {
     setCurrentRoundIndex((prev) => {
@@ -171,11 +174,11 @@ export default function SpriteRushGame() {
         setGameState("finished");
         return prev;
       }
-      setTimeLeft(QUESTION_TIME);
+      setTimeLeft(questionTime);
       setStatus("idle");
       return prev + 1;
     });
-  }, [totalRounds]);
+  }, [totalRounds, questionTime]);
 
   const recordRoundPlayed = useCallback(() => {
     setTeams((prevTeams) =>
@@ -238,13 +241,53 @@ export default function SpriteRushGame() {
     setTimeout(() => advanceRound(), 900);
   };
 
-  const roundOptions = [5, 10, 25];
+  const selectQuestionTime = (value: number) => {
+    setQuestionTime(value);
+    setTimeLeft(value);
+  };
+
   const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
   const activeTeamColor = activeTeamData.color;
   const uiColor = showTeams ? activeTeamColor : "#38bdf8";
-  const timeProgress = useMemo(() => (timeLeft / QUESTION_TIME) * 100, [timeLeft]);
+  const timeProgress = useMemo(() => (timeLeft / questionTime) * 100, [timeLeft, questionTime]);
   const teamRoundDisplay = activeTeamData.rounds + (gameState === "playing" ? 1 : 0);
   const pendingRounds = activeTeamData.rounds + totalRounds;
+
+  const renderOptionChips = (
+    options: number[],
+    selected: number,
+    onSelect: (value: number) => void,
+    formatLabel: (value: number) => string,
+  ) => (
+    <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-400">
+      {options.map((value) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => onSelect(value)}
+          disabled={isPreparing}
+          aria-pressed={selected === value}
+          className={`rounded-full border px-3 py-1 font-semibold disabled:cursor-not-allowed ${selected === value ? "text-white" : "border-white/20 text-slate-400"}`}
+          style={{ borderColor: selected === value ? uiColor : undefined }}
+        >
+          {formatLabel(value)}
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderGameSettings = () => (
+    <div className="flex flex-col items-center gap-3">
+      <div className="flex flex-col items-center gap-2">
+        <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Rounds</p>
+        {renderOptionChips(ROUND_OPTIONS, totalRounds, setTotalRounds, (value) => `${value} rounds`)}
+      </div>
+      <div className="flex flex-col items-center gap-2">
+        <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Timer</p>
+        {renderOptionChips(TIMER_OPTIONS, questionTime, selectQuestionTime, (value) => `${value}s`)}
+      </div>
+    </div>
+  );
 
   const renderSpriteStage = () => {
     if (gameState === "loading") {
@@ -254,18 +297,7 @@ export default function SpriteRushGame() {
       return (
         <div className="flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-slate-900/70 p-6 text-center">
           <p className="text-sm text-slate-300">Ready to test your Pokédex knowledge?</p>
-          <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-400">
-            {roundOptions.map((value) => (
-              <button
-                key={value}
-                onClick={() => setTotalRounds(value)}
-                className={`rounded-full border px-3 py-1 font-semibold ${totalRounds === value ? "text-white" : "border-white/20 text-slate-400"}`}
-                style={{ borderColor: totalRounds === value ? uiColor : undefined }}
-              >
-                {value} rounds
-              </button>
-            ))}
-          </div>
+          {renderGameSettings()}
           <button
             onClick={prepareRounds}
             disabled={isPreparing}
@@ -299,18 +331,7 @@ export default function SpriteRushGame() {
           <p className="text-sm uppercase tracking-[0.5em] text-emerald-300">Game complete</p>
           <h2 className="mt-2 text-3xl font-semibold text-white">Final score: {score}</h2>
           <p className="mt-3 text-slate-300">You conquered {totalRounds} rounds. Switch teams or play again!</p>
-          <div className="mt-4 flex flex-wrap justify-center gap-2 text-xs text-slate-400">
-            {roundOptions.map((value) => (
-              <button
-                key={value}
-                onClick={() => setTotalRounds(value)}
-                className={`rounded-full border px-3 py-1 font-semibold ${totalRounds === value ? "text-white" : "border-white/20 text-slate-400"}`}
-                style={{ borderColor: totalRounds === value ? uiColor : undefined }}
-              >
-                {value} rounds
-              </button>
-            ))}
-          </div>
+          <div className="mt-4">{renderGameSettings()}</div>
           <button
             onClick={prepareRounds}
             disabled={isPreparing}
@@ -338,7 +359,7 @@ export default function SpriteRushGame() {
             Who&apos;s that Pokémon?
           </h1>
           <p className="text-base text-slate-300">
-            Study the sprite and choose the matching Pokémon before the 8-second clock runs out. Quicker answers earn more points!
+            Study the sprite and choose the matching Pokémon before the {questionTime}-second clock runs out. Quicker answers earn more points!
           </p>
         </header>
 

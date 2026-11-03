@@ -49,8 +49,13 @@ const TEAM_PRESETS: TeamState[] = [
 
 const DEFAULT_QUESTION_TIME = 8;
 const ROUND_OPTIONS = [5, 10, 25];
-const TIMER_OPTIONS = [5, 8, 10, 15];
-const PACE_NAMES: Record<number, string> = { 5: "Blitz", 8: "Standard", 10: "Relaxed", 15: "Easy" };
+// Each timer has a Pokémon mascot that matches its pace (icons live in public/timer-icons).
+const TIMER_OPTIONS = [
+  { seconds: 5, pace: "Blitz", pokemon: "Jolteon", icon: "/timer-icons/jolteon.png" },
+  { seconds: 8, pace: "Standard", pokemon: "Pikachu", icon: "/timer-icons/pikachu.png" },
+  { seconds: 10, pace: "Relaxed", pokemon: "Snorlax", icon: "/timer-icons/snorlax.png" },
+  { seconds: 15, pace: "Easy", pokemon: "Slowpoke", icon: "/timer-icons/slowpoke.png" },
+];
 // Timers shorter than the default get the "blitz" treatment so the harder choice stands out.
 const BLITZ_COLOR = "#f97316";
 const BLITZ_GRADIENT = "linear-gradient(135deg, #fbbf24, #f97316)";
@@ -265,18 +270,31 @@ export default function SpriteRushGame() {
   const pendingRounds = activeTeamData.rounds + totalRounds;
   const isBlitz = isBlitzTime(questionTime);
   const timeAccent = isBlitz ? BLITZ_COLOR : uiColor;
+  const selectedTimer = TIMER_OPTIONS.find((option) => option.seconds === questionTime) ?? TIMER_OPTIONS[1];
 
-  const renderOptionChips = (
-    options: number[],
-    selected: number,
-    onSelect: (value: number) => void,
-    formatLabel: (value: number) => string,
-    isUrgent: (value: number) => boolean = () => false,
-  ) => (
+  const renderRoundChips = () => (
     <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-400">
-      {options.map((value) => {
-        const isSelected = selected === value;
-        const urgent = isUrgent(value);
+      {ROUND_OPTIONS.map((value) => (
+        <button
+          key={value}
+          type="button"
+          onClick={() => setTotalRounds(value)}
+          disabled={isPreparing}
+          aria-pressed={totalRounds === value}
+          className={`rounded-full border px-3 py-1 font-semibold disabled:cursor-not-allowed ${totalRounds === value ? "text-white" : "border-white/20 text-slate-400"}`}
+          style={{ borderColor: totalRounds === value ? uiColor : undefined }}
+        >
+          {value} rounds
+        </button>
+      ))}
+    </div>
+  );
+
+  const renderTimerTiles = () => (
+    <div className="grid w-full max-w-[15rem] grid-cols-4 gap-1.5 text-xs">
+      {TIMER_OPTIONS.map(({ seconds, pokemon, icon }) => {
+        const isSelected = questionTime === seconds;
+        const urgent = isBlitzTime(seconds);
         const stateClass = isSelected
           ? urgent
             ? "scale-105 border-transparent text-slate-950"
@@ -287,20 +305,29 @@ export default function SpriteRushGame() {
         const stateStyle = isSelected
           ? urgent
             ? { background: `${BLITZ_GRADIENT} border-box`, boxShadow: `0 0 18px ${BLITZ_COLOR}66` }
-            : { borderColor: uiColor }
+            : { borderColor: uiColor, backgroundColor: `${uiColor}1a` }
           : undefined;
         return (
           <button
-            key={value}
+            key={seconds}
             type="button"
-            onClick={() => onSelect(value)}
+            onClick={() => selectQuestionTime(seconds)}
             disabled={isPreparing}
             aria-pressed={isSelected}
-            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 font-semibold transition disabled:cursor-not-allowed ${stateClass}`}
+            title={pokemon}
+            className={`flex min-w-0 flex-col items-center gap-0.5 rounded-2xl border px-1 pb-1 pt-1.5 font-semibold transition disabled:cursor-not-allowed ${stateClass}`}
             style={stateStyle}
           >
-            {urgent && <BoltIcon />}
-            {formatLabel(value)}
+            <Image
+              src={icon}
+              alt=""
+              width={30}
+              height={24}
+              unoptimized
+              className={`transition-opacity ${isSelected ? "" : "opacity-70"}`}
+              style={{ imageRendering: "pixelated" }}
+            />
+            <span>{seconds}s</span>
           </button>
         );
       })}
@@ -308,20 +335,20 @@ export default function SpriteRushGame() {
   );
 
   const renderGameSettings = () => (
-    <div className="flex flex-col items-center gap-3">
+    <div className="flex w-full flex-col items-center gap-3">
       <div className="flex flex-col items-center gap-2">
         <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Rounds</p>
-        {renderOptionChips(ROUND_OPTIONS, totalRounds, setTotalRounds, (value) => `${value} rounds`)}
+        {renderRoundChips()}
       </div>
-      <div className="flex flex-col items-center gap-2">
+      <div className="flex w-full flex-col items-center gap-2">
         <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Timer</p>
-        {renderOptionChips(TIMER_OPTIONS, questionTime, selectQuestionTime, (value) => `${value}s`, isBlitzTime)}
+        {renderTimerTiles()}
         <p
           aria-live="polite"
           className={`text-[11px] font-semibold ${isBlitz ? "" : "text-slate-500"}`}
           style={isBlitz ? { color: BLITZ_COLOR } : undefined}
         >
-          {isBlitz ? `${PACE_NAMES[questionTime]} pace: think fast!` : `${PACE_NAMES[questionTime]} pace`}
+          {selectedTimer.pace} pace{isBlitz && ": think fast!"}
         </p>
       </div>
     </div>
@@ -437,7 +464,7 @@ export default function SpriteRushGame() {
                   style={{ background: BLITZ_GRADIENT }}
                 >
                   <BoltIcon />
-                  {PACE_NAMES[questionTime]}
+                  {selectedTimer.pace}
                 </span>
               )}
             </div>

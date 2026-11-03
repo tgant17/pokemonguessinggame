@@ -50,6 +50,11 @@ const TEAM_PRESETS: TeamState[] = [
 const DEFAULT_QUESTION_TIME = 8;
 const ROUND_OPTIONS = [5, 10, 25];
 const TIMER_OPTIONS = [5, 8, 10, 15];
+const PACE_NAMES: Record<number, string> = { 5: "Blitz", 8: "Standard", 10: "Relaxed", 15: "Easy" };
+// Timers shorter than the default get the "blitz" treatment so the harder choice stands out.
+const BLITZ_COLOR = "#f97316";
+const BLITZ_GRADIENT = "linear-gradient(135deg, #fbbf24, #f97316)";
+const isBlitzTime = (seconds: number) => seconds < DEFAULT_QUESTION_TIME;
 const SCORE_PER_SECOND = 12;
 const PENALTY_WRONG = 15;
 const PENALTY_TIMEOUT = 12;
@@ -76,6 +81,12 @@ const shuffle = <T,>(array: T[]) => {
   }
   return copy;
 };
+
+const BoltIcon = () => (
+  <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3 w-3 shrink-0" fill="currentColor">
+    <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
+  </svg>
+);
 
 export default function SpriteRushGame() {
   const [pokemonNames, setPokemonNames] = useState<string[]>([]);
@@ -252,27 +263,47 @@ export default function SpriteRushGame() {
   const timeProgress = useMemo(() => (timeLeft / questionTime) * 100, [timeLeft, questionTime]);
   const teamRoundDisplay = activeTeamData.rounds + (gameState === "playing" ? 1 : 0);
   const pendingRounds = activeTeamData.rounds + totalRounds;
+  const isBlitz = isBlitzTime(questionTime);
+  const timeAccent = isBlitz ? BLITZ_COLOR : uiColor;
 
   const renderOptionChips = (
     options: number[],
     selected: number,
     onSelect: (value: number) => void,
     formatLabel: (value: number) => string,
+    isUrgent: (value: number) => boolean = () => false,
   ) => (
     <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-400">
-      {options.map((value) => (
-        <button
-          key={value}
-          type="button"
-          onClick={() => onSelect(value)}
-          disabled={isPreparing}
-          aria-pressed={selected === value}
-          className={`rounded-full border px-3 py-1 font-semibold disabled:cursor-not-allowed ${selected === value ? "text-white" : "border-white/20 text-slate-400"}`}
-          style={{ borderColor: selected === value ? uiColor : undefined }}
-        >
-          {formatLabel(value)}
-        </button>
-      ))}
+      {options.map((value) => {
+        const isSelected = selected === value;
+        const urgent = isUrgent(value);
+        const stateClass = isSelected
+          ? urgent
+            ? "scale-105 border-transparent text-slate-950"
+            : "text-white"
+          : urgent
+            ? "border-orange-400/40 text-orange-300"
+            : "border-white/20 text-slate-400";
+        const stateStyle = isSelected
+          ? urgent
+            ? { background: `${BLITZ_GRADIENT} border-box`, boxShadow: `0 0 18px ${BLITZ_COLOR}66` }
+            : { borderColor: uiColor }
+          : undefined;
+        return (
+          <button
+            key={value}
+            type="button"
+            onClick={() => onSelect(value)}
+            disabled={isPreparing}
+            aria-pressed={isSelected}
+            className={`inline-flex items-center gap-1 rounded-full border px-3 py-1 font-semibold transition disabled:cursor-not-allowed ${stateClass}`}
+            style={stateStyle}
+          >
+            {urgent && <BoltIcon />}
+            {formatLabel(value)}
+          </button>
+        );
+      })}
     </div>
   );
 
@@ -284,7 +315,14 @@ export default function SpriteRushGame() {
       </div>
       <div className="flex flex-col items-center gap-2">
         <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Timer</p>
-        {renderOptionChips(TIMER_OPTIONS, questionTime, selectQuestionTime, (value) => `${value}s`)}
+        {renderOptionChips(TIMER_OPTIONS, questionTime, selectQuestionTime, (value) => `${value}s`, isBlitzTime)}
+        <p
+          aria-live="polite"
+          className={`text-[11px] font-semibold ${isBlitz ? "" : "text-slate-500"}`}
+          style={isBlitz ? { color: BLITZ_COLOR } : undefined}
+        >
+          {isBlitz ? `${PACE_NAMES[questionTime]} pace: think fast!` : `${PACE_NAMES[questionTime]} pace`}
+        </p>
       </div>
     </div>
   );
@@ -385,15 +423,32 @@ export default function SpriteRushGame() {
             </p>
           </div>
           <div
-            className="rounded-3xl border bg-slate-900/60 p-4 text-center shadow-lg"
-            style={{ borderColor: `${uiColor}55`, boxShadow: `0 10px 25px ${uiColor}22` }}
+            className="rounded-3xl border bg-slate-900/60 p-4 text-center shadow-lg transition-shadow"
+            style={{
+              borderColor: isBlitz ? `${BLITZ_COLOR}aa` : `${uiColor}55`,
+              boxShadow: isBlitz ? `0 0 32px ${BLITZ_COLOR}40` : `0 10px 25px ${uiColor}22`,
+            }}
           >
-            <p className="text-xs text-slate-400">Time left</p>
-            <p className="mt-2 text-3xl font-bold" style={{ color: uiColor }}>
+            <div className="flex items-center justify-center gap-2">
+              <p className="text-xs text-slate-400">Time left</p>
+              {isBlitz && (
+                <span
+                  className="inline-flex h-4 items-center gap-0.5 rounded-full px-1.5 text-[10px] font-bold leading-none text-slate-950"
+                  style={{ background: BLITZ_GRADIENT }}
+                >
+                  <BoltIcon />
+                  {PACE_NAMES[questionTime]}
+                </span>
+              )}
+            </div>
+            <p className="mt-2 text-3xl font-bold" style={{ color: timeAccent }}>
               {timeLeft}s
             </p>
             <div className="mt-3 h-2 w-full overflow-hidden rounded-full bg-slate-800">
-              <div className="h-full rounded-full transition-all" style={{ width: `${timeProgress}%`, backgroundColor: uiColor }} />
+              <div
+                className="h-full rounded-full transition-all"
+                style={{ width: `${timeProgress}%`, background: isBlitz ? BLITZ_GRADIENT : uiColor }}
+              />
             </div>
           </div>
         </section>

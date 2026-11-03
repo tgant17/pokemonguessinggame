@@ -53,7 +53,7 @@ const ROUND_OPTIONS = [5, 10, 25];
 const TIMER_OPTIONS = [
   { seconds: 5, pace: "Blitz", pokemon: "Jolteon", icon: "/timer-icons/jolteon.png" },
   { seconds: 8, pace: "Standard", pokemon: "Pikachu", icon: "/timer-icons/pikachu.png" },
-  { seconds: 10, pace: "Relaxed", pokemon: "Snorlax", icon: "/timer-icons/snorlax.png" },
+  { seconds: 10, pace: "Relaxed", pokemon: "Blastoise", icon: "/timer-icons/blastoise.png" },
   { seconds: 15, pace: "Easy", pokemon: "Slowpoke", icon: "/timer-icons/slowpoke.png" },
 ];
 // Timers shorter than the default get the "blitz" treatment so the harder choice stands out.

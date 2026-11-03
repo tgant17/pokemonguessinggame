@@ -40,7 +40,7 @@ type RoundData = {
   answers: PokemonSprite[];
 };
 
-type GameMode = "normal" | "hard";
+type GameMode = "normal" | "hard" | "superHard";
 
 type RoundStatus = "idle" | "correct" | "partial" | "wrong" | "timeout";
 
@@ -50,7 +50,7 @@ const MODE_CONFIG: Record<
 > = {
   normal: {
     label: "Normal",
-    description: "One silhouette, pick 1 of 4",
+    description: "1 silhouette · pick 1 of 4",
     optionCount: 4,
     answerCount: 1,
     questionTime: 8,
@@ -58,13 +58,32 @@ const MODE_CONFIG: Record<
   },
   hard: {
     label: "Hard",
-    description: "Two overlapping silhouettes, pick 2 of 6",
+    description: "2 stacked · pick 2 of 6",
     optionCount: 6,
     answerCount: 2,
     questionTime: 12,
     revealDelay: 1800,
   },
+  superHard: {
+    label: "Super Hard",
+    description: "3 stacked · pick 3 of 8",
+    optionCount: 8,
+    answerCount: 3,
+    questionTime: 15,
+    revealDelay: 2400,
+  },
 };
+
+// How stacked silhouettes spread out on reveal: horizontal step (% of stage width) and shrink factor.
+const REVEAL_LAYOUT: Record<number, { step: number; scale: number }> = {
+  2: { step: 52, scale: 0.68 },
+  3: { step: 34, scale: 0.42 },
+};
+
+const NUMBER_WORDS = ["zero", "one", "two", "three"];
+
+const joinNames = (names: string[]) =>
+  names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
 const TEAM_PRESETS: TeamState[] = [
   { name: "Red", color: "#ef4444", score: 0, rounds: 0 },
@@ -113,6 +132,7 @@ export default function SpriteRushGame() {
   const [totalRounds, setTotalRounds] = useState(5);
   const [mode, setMode] = useState<GameMode>("normal");
   const modeConfig = MODE_CONFIG[mode];
+  const isMulti = modeConfig.answerCount > 1;
   const [timeLeft, setTimeLeft] = useState(MODE_CONFIG.normal.questionTime);
   const [score, setScore] = useState(0);
   const [status, setStatus] = useState<RoundStatus>("idle");
@@ -278,8 +298,8 @@ export default function SpriteRushGame() {
 
   const handleChoice = (choice: PokemonSprite) => {
     if (!currentRound || status !== "idle") return;
-    if (mode === "hard") {
-      // Hard mode: tapping toggles a pick; a third tap replaces the oldest pick.
+    if (isMulti) {
+      // Multi-pick modes: tapping toggles a pick; one tap past the limit replaces the oldest pick.
       setSelectedIds((prev) => {
         if (prev.includes(choice.id)) return prev.filter((id) => id !== choice.id);
         const next = [...prev, choice.id];
@@ -300,7 +320,8 @@ export default function SpriteRushGame() {
     if (hits === currentRound.answers.length) {
       finishRound("correct", speedPoints());
     } else if (hits > 0) {
-      finishRound("partial", Math.round(speedPoints() / 2));
+      // Partial credit scales with how many of the stacked Pokémon were named.
+      finishRound("partial", Math.round((speedPoints() * hits) / currentRound.answers.length));
     } else {
       finishRound("wrong", -PENALTY_WRONG);
     }
@@ -313,11 +334,13 @@ export default function SpriteRushGame() {
   const timeProgress = useMemo(() => (timeLeft / modeConfig.questionTime) * 100, [timeLeft, modeConfig]);
   const teamRoundDisplay = activeTeamData.rounds + (gameState === "playing" ? 1 : 0);
   const pendingRounds = activeTeamData.rounds + totalRounds;
-  const answerNames = currentRound?.answers.map((answer) => formatName(answer.name)).join(" and ") ?? "";
+  const answerNames = joinNames(currentRound?.answers.map((answer) => formatName(answer.name)) ?? []);
+  const answerCountWord = NUMBER_WORDS[modeConfig.answerCount] ?? String(modeConfig.answerCount);
+  const roundHits = currentRound ? currentRound.answers.filter((answer) => selectedIds.includes(answer.id)).length : 0;
 
   const renderGameSetup = () => (
     <>
-      <div className="grid w-full max-w-xs grid-cols-2 gap-2">
+      <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-3">
         {(Object.keys(MODE_CONFIG) as GameMode[]).map((value) => (
           <button
             key={value}
@@ -377,13 +400,14 @@ export default function SpriteRushGame() {
     }
     if (gameState === "playing" && currentRound) {
       const revealed = status !== "idle";
-      const isStacked = currentRound.answers.length > 1;
+      const stackSize = currentRound.answers.length;
+      const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
       return (
         <div className="relative h-64 w-full">
           {currentRound.answers.map((answer, index) => {
-            // Stacked silhouettes sit on top of each other, then slide apart on reveal.
-            const offset = isStacked && revealed ? (index === 0 ? "-26%" : "26%") : "0%";
-            const scale = isStacked && revealed ? 0.68 : 1;
+            // Stacked silhouettes sit on top of each other, then slide apart side by side on reveal.
+            const offset = layout ? `${(index - (stackSize - 1) / 2) * layout.step}%` : "0%";
+            const scale = layout ? layout.scale : 1;
             return (
               <div
                 key={answer.id}
@@ -440,8 +464,8 @@ export default function SpriteRushGame() {
             Who&apos;s that Pokémon?
           </h1>
           <p className="text-base text-slate-300">
-            {mode === "hard"
-              ? `Two silhouettes are stacked on top of each other. Pick both Pokémon before the ${modeConfig.questionTime}-second clock runs out!`
+            {isMulti
+              ? `${answerCountWord.charAt(0).toUpperCase() + answerCountWord.slice(1)} silhouettes are stacked on top of each other. Pick all ${answerCountWord} Pokémon before the ${modeConfig.questionTime}-second clock runs out!`
               : `Study the sprite and choose the matching Pokémon before the ${modeConfig.questionTime}-second clock runs out. Quicker answers earn more points!`}
           </p>
         </header>
@@ -496,9 +520,9 @@ export default function SpriteRushGame() {
 
           <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-6">
             <p className="text-xs uppercase tracking-[0.4em] text-slate-400">
-              {mode === "hard" ? `Pick two · ${selectedIds.length}/${modeConfig.answerCount} chosen` : "Choose wisely"}
+              {isMulti ? `Pick ${answerCountWord} · ${selectedIds.length}/${modeConfig.answerCount} chosen` : "Choose wisely"}
             </p>
-            <div className={`mt-4 grid gap-4 ${mode === "hard" ? "grid-cols-2 gap-3" : ""}`}>
+            <div className={`mt-4 grid gap-4 ${isMulti ? "grid-cols-2 gap-3" : ""}`}>
               {gameState === "playing" && currentRound
                 ? currentRound.options.map((option) => {
                     const revealed = status !== "idle";
@@ -506,16 +530,16 @@ export default function SpriteRushGame() {
                     const isSelected = selectedIds.includes(option.id);
                     const isCorrect = revealed && isAnswer;
                     const isWrong =
-                      mode === "hard" ? revealed && isSelected && !isAnswer : status === "wrong" && !isAnswer;
+                      isMulti ? revealed && isSelected && !isAnswer : status === "wrong" && !isAnswer;
                     const isPicked = !revealed && isSelected;
                     return (
                       <button
                         key={`${option.id}-${option.name}`}
                         onClick={() => handleChoice(option)}
                         disabled={revealed}
-                        aria-pressed={mode === "hard" ? isSelected : undefined}
+                        aria-pressed={isMulti ? isSelected : undefined}
                         className={`w-full break-words rounded-2xl border px-4 py-3 text-left font-semibold capitalize transition ${
-                          mode === "hard" ? "text-base" : "text-lg"
+                          isMulti ? "text-base" : "text-lg"
                         } ${
                           isCorrect || isPicked
                             ? "text-white"
@@ -536,14 +560,14 @@ export default function SpriteRushGame() {
                     <div
                       key={`placeholder-${index}`}
                       className={`rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-left text-slate-500 ${
-                        mode === "hard" ? "text-base" : "text-lg"
+                        isMulti ? "text-base" : "text-lg"
                       }`}
                     >
                       Option {index + 1}
                     </div>
                   ))}
             </div>
-            {mode === "hard" && gameState === "playing" && status === "idle" && (
+            {isMulti && gameState === "playing" && status === "idle" && (
               <button
                 type="button"
                 onClick={handleSubmitPicks}
@@ -564,22 +588,26 @@ export default function SpriteRushGame() {
               <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-center text-sm">
                 {status === "correct" && (
                   <p className="text-emerald-300">
-                    {mode === "hard" ? "You got both! Speed bonus earned." : "Great job! You earned bonus points for speed."}
+                    {isMulti
+                      ? `You got ${modeConfig.answerCount === 2 ? "both" : `all ${answerCountWord}`}! Speed bonus earned.`
+                      : "Great job! You earned bonus points for speed."}
                   </p>
                 )}
                 {status === "partial" && (
-                  <p className="text-amber-300">One out of two, half points! It was {answerNames}.</p>
+                  <p className="text-amber-300">
+                    {roundHits} out of {modeConfig.answerCount}, partial points! It was {answerNames}.
+                  </p>
                 )}
                 {status === "wrong" && (
                   <p className="text-rose-300">
-                    {mode === "hard"
+                    {isMulti
                       ? `Not quite! Those were ${answerNames}.`
                       : `Not quite! That sprite belonged to ${answerNames}.`}
                   </p>
                 )}
                 {status === "timeout" && (
                   <p className="text-amber-300">
-                    Time&apos;s up! You lost a few points.{mode === "hard" ? ` It was ${answerNames}.` : ""}
+                    Time&apos;s up! You lost a few points.{isMulti ? ` It was ${answerNames}.` : ""}
                   </p>
                 )}
               </div>

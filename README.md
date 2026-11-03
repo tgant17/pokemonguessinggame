@@ -8,7 +8,9 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Prefetches all sprites for the round up front, preventing mid-round loading hitches.
 - Silhouette effect while guessing, then reveals the sprite after your answer.
 - Adjustable game length (5/10/25 rounds) and persistent per-team scoreboards.
-- Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (12-second clock, half points for getting one of the two).
+- Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (12-second clock).
+- Super Hard mode: three stacked silhouettes, pick all three from 8 options (15-second clock).
+- In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI with dynamic theming based on the active team.
 
 ## Getting started

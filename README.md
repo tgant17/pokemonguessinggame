@@ -13,7 +13,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Speed scoring: the clock is split into quarters. A correct answer in the first quarter earns 4 points, then 3, 2, and 1 in the final quarter. Wrong answers and time-outs score 0 and never take points away.
 - In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI.
-- Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard.
+- Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard. Each player joins with a name tag (up to 10 characters) and a partner picked from three random Pokémon.
 
 ## Getting started
 
@@ -44,6 +44,7 @@ Then use **Create a room** on the home page. In development the site looks for t
 - Players are remembered by an id in the browser's local storage, so refreshing the page keeps your seat, score and any answer you'd locked in. People who join mid-game watch (and see each reveal) until the next game.
 - The first player to join hosts and picks the settings. If they're away, the next connected player can start; between games the host can hand hosting to someone else with **Make host**.
 - Players who have left are dropped from the list when the next game starts (or when the room is full and someone new joins). A room that everyone has left is wiped after 5 minutes.
+- To join, each player writes a name of up to 10 characters and picks a partner from three random Pokémon. The partner shows next to their name in the players list and in the room's chat.
 - Rooms hold up to 12 players.
 
 ## Deployment (Vercel)

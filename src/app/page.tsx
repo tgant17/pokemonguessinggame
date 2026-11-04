@@ -37,17 +37,44 @@ type TeamState = {
 
 type RoundData = {
   options: PokemonSprite[];
-  answer: PokemonSprite;
+  answers: PokemonSprite[];
 };
 
-const TEAM_PRESETS: TeamState[] = [
-  { name: "Red", color: "#ef4444", score: 0, rounds: 0 },
-  { name: "Blue", color: "#3b82f6", score: 0, rounds: 0 },
-  { name: "Yellow", color: "#facc15", score: 0, rounds: 0 },
-  { name: "Green", color: "#22c55e", score: 0, rounds: 0 },
-];
+type GameMode = "normal" | "hard" | "superHard";
 
-const DEFAULT_QUESTION_TIME = 8;
+type RoundStatus = "idle" | "correct" | "partial" | "wrong" | "timeout";
+
+// defaultTime is the timer each mode starts on; players can still pick any of TIMER_OPTIONS.
+const MODE_CONFIG: Record<
+  GameMode,
+  { label: string; description: string; optionCount: number; answerCount: number; defaultTime: number; revealDelay: number }
+> = {
+  normal: {
+    label: "Normal",
+    description: "1 silhouette · pick 1 of 4",
+    optionCount: 4,
+    answerCount: 1,
+    defaultTime: 8,
+    revealDelay: 900,
+  },
+  hard: {
+    label: "Hard",
+    description: "2 stacked · pick 2 of 6",
+    optionCount: 6,
+    answerCount: 2,
+    defaultTime: 10,
+    revealDelay: 1800,
+  },
+  superHard: {
+    label: "Super Hard",
+    description: "3 stacked · pick 3 of 8",
+    optionCount: 8,
+    answerCount: 3,
+    defaultTime: 15,
+    revealDelay: 2400,
+  },
+};
+
 const ROUND_OPTIONS = [5, 10, 25];
 // Each timer has a Pokémon mascot that matches its pace (icons live in public/timer-icons).
 const TIMER_OPTIONS = [
@@ -56,10 +83,29 @@ const TIMER_OPTIONS = [
   { seconds: 10, pace: "Relaxed", pokemon: "Blastoise", icon: "/timer-icons/blastoise.png" },
   { seconds: 15, pace: "Easy", pokemon: "Slowpoke", icon: "/timer-icons/slowpoke.png" },
 ];
-// Timers shorter than the default get the "blitz" treatment so the harder choice stands out.
+// Timers shorter than Normal's 8-second default get the "blitz" treatment so the harder choice stands out.
 const BLITZ_COLOR = "#f97316";
 const BLITZ_GRADIENT = "linear-gradient(135deg, #fbbf24, #f97316)";
-const isBlitzTime = (seconds: number) => seconds < DEFAULT_QUESTION_TIME;
+const isBlitzTime = (seconds: number) => seconds < MODE_CONFIG.normal.defaultTime;
+
+// How stacked silhouettes spread out on reveal: horizontal step (% of stage width) and shrink factor.
+const REVEAL_LAYOUT: Record<number, { step: number; scale: number }> = {
+  2: { step: 52, scale: 0.68 },
+  3: { step: 34, scale: 0.42 },
+};
+
+const NUMBER_WORDS = ["zero", "one", "two", "three"];
+
+const joinNames = (names: string[]) =>
+  names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
+
+const TEAM_PRESETS: TeamState[] = [
+  { name: "Red", color: "#ef4444", score: 0, rounds: 0 },
+  { name: "Blue", color: "#3b82f6", score: 0, rounds: 0 },
+  { name: "Yellow", color: "#facc15", score: 0, rounds: 0 },
+  { name: "Green", color: "#22c55e", score: 0, rounds: 0 },
+];
+
 const SCORE_PER_SECOND = 12;
 const PENALTY_WRONG = 15;
 const PENALTY_TIMEOUT = 12;
@@ -87,6 +133,12 @@ const shuffle = <T,>(array: T[]) => {
   return copy;
 };
 
+const formatName = (name: string) =>
+  name
+    .split("-")
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(" ");
+
 const BoltIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3 w-3 shrink-0" fill="currentColor">
     <path d="M13 2 4 14h7l-1 8 9-12h-7l1-8z" />
@@ -98,10 +150,14 @@ export default function SpriteRushGame() {
   const [rounds, setRounds] = useState<RoundData[]>([]);
   const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
   const [totalRounds, setTotalRounds] = useState(5);
-  const [questionTime, setQuestionTime] = useState(DEFAULT_QUESTION_TIME);
-  const [timeLeft, setTimeLeft] = useState(DEFAULT_QUESTION_TIME);
+  const [mode, setMode] = useState<GameMode>("normal");
+  const modeConfig = MODE_CONFIG[mode];
+  const isMulti = modeConfig.answerCount > 1;
+  const [questionTime, setQuestionTime] = useState(MODE_CONFIG.normal.defaultTime);
+  const [timeLeft, setTimeLeft] = useState(MODE_CONFIG.normal.defaultTime);
   const [score, setScore] = useState(0);
-  const [status, setStatus] = useState<"idle" | "correct" | "wrong" | "timeout">("idle");
+  const [status, setStatus] = useState<RoundStatus>("idle");
+  const [selectedIds, setSelectedIds] = useState<number[]>([]);
   const [gameState, setGameState] = useState<"loading" | "ready" | "playing" | "finished">("loading");
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -140,25 +196,38 @@ export default function SpriteRushGame() {
     }
   }, []);
 
-  const buildRound = useCallback(async (): Promise<RoundData | null> => {
-    if (!pokemonNames.length) return null;
-    const candidates: PokemonSprite[] = [];
-    const usedNames = new Set<string>();
-    let attempts = 0;
-    while (candidates.length < 4 && attempts < 150) {
-      attempts += 1;
-      const candidate = pokemonNames[Math.floor(Math.random() * pokemonNames.length)];
-      if (!candidate || usedNames.has(candidate)) continue;
-      const sprite = await fetchPokemonSprite(candidate);
-      if (!sprite) continue;
-      usedNames.add(candidate);
-      candidates.push(sprite);
-    }
-    if (candidates.length < 4) return null;
-    const options = shuffle(candidates);
-    const answer = options[Math.floor(Math.random() * options.length)];
-    return { options, answer };
-  }, [pokemonNames, fetchPokemonSprite]);
+  const buildRound = useCallback(
+    async (optionCount: number, answerCount: number): Promise<RoundData | null> => {
+      if (!pokemonNames.length) return null;
+      const candidates: PokemonSprite[] = [];
+      const triedNames = new Set<string>();
+      let attempts = 0;
+      while (candidates.length < optionCount && attempts < 150) {
+        // Fetch the missing options in parallel so 6-option rounds stay quick to prepare.
+        const batch: string[] = [];
+        const needed = optionCount - candidates.length;
+        while (batch.length < needed && triedNames.size < pokemonNames.length) {
+          const candidate = pokemonNames[Math.floor(Math.random() * pokemonNames.length)];
+          if (!candidate || triedNames.has(candidate)) continue;
+          triedNames.add(candidate);
+          batch.push(candidate);
+        }
+        if (!batch.length) break;
+        attempts += batch.length;
+        const sprites = await Promise.all(batch.map((name) => fetchPokemonSprite(name)));
+        for (const sprite of sprites) {
+          if (sprite && candidates.length < optionCount && !candidates.some((c) => c.id === sprite.id)) {
+            candidates.push(sprite);
+          }
+        }
+      }
+      if (candidates.length < optionCount) return null;
+      const options = shuffle(candidates);
+      const answers = shuffle(options).slice(0, answerCount);
+      return { options, answers };
+    },
+    [pokemonNames, fetchPokemonSprite],
+  );
 
   const prepareRounds = useCallback(async () => {
     if (!pokemonNames.length) return;
@@ -166,7 +235,7 @@ export default function SpriteRushGame() {
     setErrorMessage(null);
     const builtRounds: RoundData[] = [];
     while (builtRounds.length < totalRounds) {
-      const round = await buildRound();
+      const round = await buildRound(modeConfig.optionCount, modeConfig.answerCount);
       if (!round) break;
       builtRounds.push(round);
     }
@@ -180,9 +249,10 @@ export default function SpriteRushGame() {
     setScore(0);
     setTimeLeft(questionTime);
     setStatus("idle");
+    setSelectedIds([]);
     setGameState("playing");
     setIsPreparing(false);
-  }, [buildRound, pokemonNames.length, totalRounds, questionTime]);
+  }, [buildRound, pokemonNames.length, totalRounds, modeConfig, questionTime]);
 
   const advanceRound = useCallback(() => {
     setCurrentRoundIndex((prev) => {
@@ -192,9 +262,20 @@ export default function SpriteRushGame() {
       }
       setTimeLeft(questionTime);
       setStatus("idle");
+      setSelectedIds([]);
       return prev + 1;
     });
   }, [totalRounds, questionTime]);
+
+  const applyScore = useCallback(
+    (delta: number) => {
+      setScore((prev) => prev + delta);
+      setTeams((prevTeams) =>
+        prevTeams.map((team) => (team.name === activeTeam ? { ...team, score: team.score + delta } : team)),
+      );
+    },
+    [activeTeam],
+  );
 
   const recordRoundPlayed = useCallback(() => {
     setTeams((prevTeams) =>
@@ -207,15 +288,10 @@ export default function SpriteRushGame() {
   const handleTimeout = useCallback(() => {
     if (status !== "idle") return;
     setStatus("timeout");
-    setScore((prev) => prev - PENALTY_TIMEOUT);
-    setTeams((prevTeams) =>
-      prevTeams.map((team) =>
-        team.name === activeTeam ? { ...team, score: team.score - PENALTY_TIMEOUT } : team,
-      ),
-    );
+    applyScore(-PENALTY_TIMEOUT);
     recordRoundPlayed();
-    setTimeout(() => advanceRound(), 900);
-  }, [status, advanceRound, activeTeam, recordRoundPlayed]);
+    setTimeout(() => advanceRound(), modeConfig.revealDelay);
+  }, [status, advanceRound, applyScore, recordRoundPlayed, modeConfig]);
 
   useEffect(() => {
     if (gameState !== "playing" || status !== "idle") return;
@@ -232,29 +308,44 @@ export default function SpriteRushGame() {
     return () => clearInterval(timer);
   }, [gameState, status, handleTimeout, currentRoundIndex]);
 
+  const finishRound = (outcome: Exclude<RoundStatus, "idle" | "timeout">, delta: number) => {
+    applyScore(delta);
+    setStatus(outcome);
+    recordRoundPlayed();
+    setTimeout(() => advanceRound(), modeConfig.revealDelay);
+  };
+
+  const speedPoints = () => Math.max(5, Math.round(timeLeft * SCORE_PER_SECOND));
+
   const handleChoice = (choice: PokemonSprite) => {
     if (!currentRound || status !== "idle") return;
-    const isCorrect = choice.id === currentRound.answer.id;
-    if (isCorrect) {
-      const gained = Math.max(5, Math.round(timeLeft * SCORE_PER_SECOND));
-      setScore((prev) => prev + gained);
-      setTeams((prev) =>
-        prev.map((team) =>
-          team.name === activeTeam ? { ...team, score: team.score + gained } : team,
-        ),
-      );
-      setStatus("correct");
-    } else {
-      setScore((prev) => prev - PENALTY_WRONG);
-      setTeams((prev) =>
-        prev.map((team) =>
-          team.name === activeTeam ? { ...team, score: team.score - PENALTY_WRONG } : team,
-        ),
-      );
-      setStatus("wrong");
+    if (isMulti) {
+      // Multi-pick modes: tapping toggles a pick; one tap past the limit replaces the oldest pick.
+      setSelectedIds((prev) => {
+        if (prev.includes(choice.id)) return prev.filter((id) => id !== choice.id);
+        const next = [...prev, choice.id];
+        return next.length > modeConfig.answerCount ? next.slice(next.length - modeConfig.answerCount) : next;
+      });
+      return;
     }
-    recordRoundPlayed();
-    setTimeout(() => advanceRound(), 900);
+    if (choice.id === currentRound.answers[0].id) {
+      finishRound("correct", speedPoints());
+    } else {
+      finishRound("wrong", -PENALTY_WRONG);
+    }
+  };
+
+  const handleSubmitPicks = () => {
+    if (!currentRound || status !== "idle" || selectedIds.length !== modeConfig.answerCount) return;
+    const hits = currentRound.answers.filter((answer) => selectedIds.includes(answer.id)).length;
+    if (hits === currentRound.answers.length) {
+      finishRound("correct", speedPoints());
+    } else if (hits > 0) {
+      // Partial credit scales with how many of the stacked Pokémon were named.
+      finishRound("partial", Math.round((speedPoints() * hits) / currentRound.answers.length));
+    } else {
+      finishRound("wrong", -PENALTY_WRONG);
+    }
   };
 
   const selectQuestionTime = (value: number) => {
@@ -262,15 +353,23 @@ export default function SpriteRushGame() {
     setTimeLeft(value);
   };
 
+  const selectMode = (value: GameMode) => {
+    setMode(value);
+    selectQuestionTime(MODE_CONFIG[value].defaultTime);
+  };
+
   const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
   const activeTeamColor = activeTeamData.color;
   const uiColor = showTeams ? activeTeamColor : "#38bdf8";
   const timeProgress = useMemo(() => (timeLeft / questionTime) * 100, [timeLeft, questionTime]);
-  const teamRoundDisplay = activeTeamData.rounds + (gameState === "playing" ? 1 : 0);
-  const pendingRounds = activeTeamData.rounds + totalRounds;
   const isBlitz = isBlitzTime(questionTime);
   const timeAccent = isBlitz ? BLITZ_COLOR : uiColor;
   const selectedTimer = TIMER_OPTIONS.find((option) => option.seconds === questionTime) ?? TIMER_OPTIONS[1];
+  const teamRoundDisplay = activeTeamData.rounds + (gameState === "playing" ? 1 : 0);
+  const pendingRounds = activeTeamData.rounds + totalRounds;
+  const answerNames = joinNames(currentRound?.answers.map((answer) => formatName(answer.name)) ?? []);
+  const answerCountWord = NUMBER_WORDS[modeConfig.answerCount] ?? String(modeConfig.answerCount);
+  const roundHits = currentRound ? currentRound.answers.filter((answer) => selectedIds.includes(answer.id)).length : 0;
 
   const renderRoundChips = () => (
     <div className="flex flex-wrap justify-center gap-2 text-xs text-slate-400">
@@ -334,8 +433,28 @@ export default function SpriteRushGame() {
     </div>
   );
 
-  const renderGameSettings = () => (
-    <div className="flex w-full flex-col items-center gap-3">
+  const renderGameSetup = () => (
+    <>
+      <div className="grid w-full max-w-md grid-cols-1 gap-2 sm:grid-cols-3">
+        {(Object.keys(MODE_CONFIG) as GameMode[]).map((value) => (
+          <button
+            key={value}
+            type="button"
+            onClick={() => selectMode(value)}
+            aria-pressed={mode === value}
+            className={`rounded-2xl border px-3 py-2 text-left transition ${
+              mode === value ? "text-white" : "border-white/20 text-slate-400"
+            }`}
+            style={{
+              borderColor: mode === value ? uiColor : undefined,
+              backgroundColor: mode === value ? `${uiColor}22` : undefined,
+            }}
+          >
+            <span className="block text-sm font-semibold">{MODE_CONFIG[value].label}</span>
+            <span className="block text-[11px] leading-snug text-slate-400">{MODE_CONFIG[value].description}</span>
+          </button>
+        ))}
+      </div>
       <div className="flex flex-col items-center gap-2">
         <p className="text-[10px] uppercase tracking-[0.3em] text-slate-500">Rounds</p>
         {renderRoundChips()}
@@ -351,7 +470,7 @@ export default function SpriteRushGame() {
           {selectedTimer.pace} pace{isBlitz && ": think fast!"}
         </p>
       </div>
-    </div>
+    </>
   );
 
   const renderSpriteStage = () => {
@@ -362,7 +481,7 @@ export default function SpriteRushGame() {
       return (
         <div className="flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-slate-900/70 p-6 text-center">
           <p className="text-sm text-slate-300">Ready to test your Pokédex knowledge?</p>
-          {renderGameSettings()}
+          {renderGameSetup()}
           <button
             onClick={prepareRounds}
             disabled={isPreparing}
@@ -375,18 +494,34 @@ export default function SpriteRushGame() {
       );
     }
     if (gameState === "playing" && currentRound) {
+      const revealed = status !== "idle";
+      const stackSize = currentRound.answers.length;
+      const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
       return (
         <div className="relative h-64 w-full">
-          <Image
-            src={currentRound.answer.spriteUrl}
-            alt={`Sprite of ${currentRound.answer.name}`}
-            fill
-            sizes="(max-width: 768px) 80vw, 40vw"
-            className={`object-contain drop-shadow-[0_8px_20px_rgba(16,185,129,0.35)] ${
-              status === "idle" ? "brightness-0 contrast-200" : ""
-            }`}
-            priority
-          />
+          {currentRound.answers.map((answer, index) => {
+            // Stacked silhouettes sit on top of each other, then slide apart side by side on reveal.
+            const offset = layout ? `${(index - (stackSize - 1) / 2) * layout.step}%` : "0%";
+            const scale = layout ? layout.scale : 1;
+            return (
+              <div
+                key={answer.id}
+                className="absolute inset-0 transition-transform duration-500 ease-out"
+                style={{ transform: `translateX(${offset}) scale(${scale})` }}
+              >
+                <Image
+                  src={answer.spriteUrl}
+                  alt={`Sprite of ${answer.name}`}
+                  fill
+                  sizes="(max-width: 768px) 80vw, 40vw"
+                  className={`object-contain drop-shadow-[0_8px_20px_rgba(16,185,129,0.35)] ${
+                    revealed ? "" : "brightness-0 contrast-200"
+                  }`}
+                  priority
+                />
+              </div>
+            );
+          })}
         </div>
       );
     }
@@ -396,7 +531,7 @@ export default function SpriteRushGame() {
           <p className="text-sm uppercase tracking-[0.5em] text-emerald-300">Game complete</p>
           <h2 className="mt-2 text-3xl font-semibold text-white">Final score: {score}</h2>
           <p className="mt-3 text-slate-300">You conquered {totalRounds} rounds. Switch teams or play again!</p>
-          <div className="mt-4">{renderGameSettings()}</div>
+          <div className="mt-4 flex flex-col items-center gap-3">{renderGameSetup()}</div>
           <button
             onClick={prepareRounds}
             disabled={isPreparing}
@@ -424,7 +559,9 @@ export default function SpriteRushGame() {
             Who&apos;s that Pokémon?
           </h1>
           <p className="text-base text-slate-300">
-            Study the sprite and choose the matching Pokémon before the {questionTime}-second clock runs out. Quicker answers earn more points!
+            {isMulti
+              ? `${answerCountWord.charAt(0).toUpperCase() + answerCountWord.slice(1)} silhouettes are stacked on top of each other. Pick all ${answerCountWord} Pokémon before the ${questionTime}-second clock runs out!`
+              : `Study the sprite and choose the matching Pokémon before the ${questionTime}-second clock runs out. Quicker answers earn more points!`}
           </p>
         </header>
 
@@ -494,44 +631,97 @@ export default function SpriteRushGame() {
           </div>
 
           <div className="rounded-3xl border border-white/10 bg-slate-900/60 p-6">
-            <p className="text-xs uppercase tracking-[0.4em] text-slate-400">Choose wisely</p>
-            <div className="mt-4 grid gap-4">
+            <p className="text-xs uppercase tracking-[0.4em] text-slate-400">
+              {isMulti ? `Pick ${answerCountWord} · ${selectedIds.length}/${modeConfig.answerCount} chosen` : "Choose wisely"}
+            </p>
+            <div className={`mt-4 grid gap-4 ${isMulti ? "grid-cols-2 gap-3" : ""}`}>
               {gameState === "playing" && currentRound
                 ? currentRound.options.map((option) => {
-                    const isCorrect = status !== "idle" && currentRound.answer.id === option.id;
-                    const isWrong = status === "wrong" && currentRound.answer.id !== option.id;
+                    const revealed = status !== "idle";
+                    const isAnswer = currentRound.answers.some((answer) => answer.id === option.id);
+                    const isSelected = selectedIds.includes(option.id);
+                    const isCorrect = revealed && isAnswer;
+                    const isWrong =
+                      isMulti ? revealed && isSelected && !isAnswer : status === "wrong" && !isAnswer;
+                    const isPicked = !revealed && isSelected;
                     return (
                       <button
                         key={`${option.id}-${option.name}`}
                         onClick={() => handleChoice(option)}
-                        disabled={status !== "idle"}
-                        className={`w-full rounded-2xl border px-4 py-3 text-left text-lg font-semibold capitalize transition ${
-                          isCorrect
+                        disabled={revealed}
+                        aria-pressed={isMulti ? isSelected : undefined}
+                        className={`w-full break-words rounded-2xl border px-4 py-3 text-left font-semibold capitalize transition ${
+                          isMulti ? "text-base" : "text-lg"
+                        } ${
+                          isCorrect || isPicked
                             ? "text-white"
                             : isWrong
                               ? "border-rose-400 bg-rose-500/10 text-white"
                               : "bg-slate-900/60 text-slate-200"
-                        } ${status !== "idle" ? "cursor-default" : ""}`}
+                        } ${revealed ? "cursor-default" : ""}`}
                         style={{
-                          borderColor: isCorrect ? uiColor : isWrong ? "#f87171" : `${uiColor}33`,
-                          backgroundColor: isCorrect ? `${uiColor}22` : undefined,
+                          borderColor: isCorrect || isPicked ? uiColor : isWrong ? "#f87171" : `${uiColor}33`,
+                          backgroundColor: isCorrect || isPicked ? `${uiColor}22` : undefined,
                         }}
                       >
-                        {option.name.replace(/-/g, " ")}
+                        {formatName(option.name)}
                       </button>
                     );
                   })
-                : Array.from({ length: 4 }).map((_, index) => (
-                    <div key={`placeholder-${index}`} className="rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-left text-lg text-slate-500">
+                : Array.from({ length: modeConfig.optionCount }).map((_, index) => (
+                    <div
+                      key={`placeholder-${index}`}
+                      className={`rounded-2xl border border-white/5 bg-slate-900/40 px-4 py-3 text-left text-slate-500 ${
+                        isMulti ? "text-base" : "text-lg"
+                      }`}
+                    >
                       Option {index + 1}
                     </div>
                   ))}
             </div>
+            {isMulti && gameState === "playing" && status === "idle" && (
+              <button
+                type="button"
+                onClick={handleSubmitPicks}
+                disabled={selectedIds.length !== modeConfig.answerCount}
+                className="mt-4 w-full rounded-2xl px-6 py-3 text-sm font-semibold text-slate-950 transition disabled:cursor-not-allowed disabled:bg-slate-700 disabled:text-slate-400"
+                style={
+                  selectedIds.length === modeConfig.answerCount
+                    ? { backgroundColor: uiColor, boxShadow: `0 10px 25px ${uiColor}33` }
+                    : undefined
+                }
+              >
+                {selectedIds.length === modeConfig.answerCount
+                  ? "Submit answer"
+                  : `Pick ${modeConfig.answerCount - selectedIds.length} more`}
+              </button>
+            )}
             {status !== "idle" && (
               <div className="mt-6 rounded-2xl border border-white/10 bg-slate-900/70 p-4 text-center text-sm">
-                {status === "correct" && <p className="text-emerald-300">Great job! You earned bonus points for speed.</p>}
-                {status === "wrong" && <p className="text-rose-300">Not quite! That sprite belonged to {currentRound?.answer.name}.</p>}
-                {status === "timeout" && <p className="text-amber-300">Time&apos;s up! You lost a few points.</p>}
+                {status === "correct" && (
+                  <p className="text-emerald-300">
+                    {isMulti
+                      ? `You got ${modeConfig.answerCount === 2 ? "both" : `all ${answerCountWord}`}! Speed bonus earned.`
+                      : "Great job! You earned bonus points for speed."}
+                  </p>
+                )}
+                {status === "partial" && (
+                  <p className="text-amber-300">
+                    {roundHits} out of {modeConfig.answerCount}, partial points! It was {answerNames}.
+                  </p>
+                )}
+                {status === "wrong" && (
+                  <p className="text-rose-300">
+                    {isMulti
+                      ? `Not quite! Those were ${answerNames}.`
+                      : `Not quite! That sprite belonged to ${answerNames}.`}
+                  </p>
+                )}
+                {status === "timeout" && (
+                  <p className="text-amber-300">
+                    Time&apos;s up! You lost a few points.{isMulti ? ` It was ${answerNames}.` : ""}
+                  </p>
+                )}
               </div>
             )}
           </div>

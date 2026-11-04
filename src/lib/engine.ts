@@ -86,7 +86,7 @@ export const submitAnswer = (state: GameState, playerId: string, pickedIds: numb
     return state;
   }
   // Points come from whole seconds left, matching the countdown players see.
-  const result = scorePicks(round.answers, picks, secondsLeft(state, now));
+  const result = scorePicks(round.answers, picks, secondsLeft(state, now), state.settings.questionTime);
   const answers = { ...state.answers, [playerId]: { pickedIds: picks, ...result } };
   if (state.playerIds.every((id) => answers[id])) return reveal(state, now, answers);
   return { ...state, answers };

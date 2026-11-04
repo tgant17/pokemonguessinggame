@@ -10,7 +10,7 @@ import {
   type GameSettings,
   type GameState,
 } from "./engine.ts";
-import { MODE_CONFIG, PENALTY_TIMEOUT, PENALTY_WRONG, type PokemonSprite, type RoundData } from "./game.ts";
+import { MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
 
 const mon = (id: number): PokemonSprite => ({ id, name: `mon-${id}`, spriteUrl: `https://example.test/${id}.png` });
 // Round n uses options n*10+1..n*10+optionCount; the first answerCount options are the answers.
@@ -45,23 +45,23 @@ test("the clock counts down in whole seconds like the old interval", () => {
 });
 
 test("a correct answer scores speed points and reveals straight away in solo", () => {
-  const game = submitAnswer(startedSolo(), "me", [1], T0 + 2500); // 6 whole seconds left
+  const game = submitAnswer(startedSolo(), "me", [1], T0 + 2500); // 6 of 8 seconds left: second quarter
   assert.equal(game.phase, "reveal");
-  assert.deepEqual(game.answers.me, { pickedIds: [1], outcome: "correct", delta: 72 });
-  assert.equal(game.scores.me, 72);
+  assert.deepEqual(game.answers.me, { pickedIds: [1], outcome: "correct", delta: 3 });
+  assert.equal(game.scores.me, 3);
   assert.equal(secondsLeft(game, T0 + 5000), 6, "the clock freezes at reveal");
   assert.equal(game.revealEndsAt, T0 + 2500 + MODE_CONFIG.normal.revealDelay);
 });
 
-test("a wrong answer is penalised", () => {
+test("a wrong answer scores nothing", () => {
   const game = submitAnswer(startedSolo(), "me", [2], T0);
-  assert.deepEqual(game.answers.me, { pickedIds: [2], outcome: "wrong", delta: -PENALTY_WRONG });
+  assert.deepEqual(game.answers.me, { pickedIds: [2], outcome: "wrong", delta: 0 });
 });
 
 test("running out of time is a timeout, even if an answer arrives late", () => {
   const timedOut = tick(startedSolo(), T0 + 8000);
   assert.equal(timedOut.phase, "reveal");
-  assert.deepEqual(timedOut.answers.me, { pickedIds: [], outcome: "timeout", delta: -PENALTY_TIMEOUT });
+  assert.deepEqual(timedOut.answers.me, { pickedIds: [], outcome: "timeout", delta: 0 });
   assert.equal(secondsLeft(timedOut, T0 + 8000), 0);
 
   const late = submitAnswer(startedSolo(), "me", [1], T0 + 8200);
@@ -86,20 +86,20 @@ test("after the reveal the next round waits, and the last round finishes the gam
   assert.equal(game.phase, "waiting");
   assert.equal(game.roundIndex, 1);
   assert.deepEqual(game.answers, {});
-  assert.equal(game.scores.me, 96, "score carries over");
+  assert.equal(game.scores.me, 4, "score carries over");
 
   game = submitAnswer(startClock(game, T0 + 5000), "me", [11], T0 + 5000);
   game = tick(game, game.revealEndsAt!);
   assert.equal(game.phase, "finished");
-  assert.equal(game.scores.me, 192);
+  assert.equal(game.scores.me, 8);
   assert.equal(nextWakeAt(game, T0 + 99999), null);
 });
 
 test("stacked modes score partial credit", () => {
   const settings: GameSettings = { mode: "superHard", totalRounds: 1, questionTime: 15 };
   const game = startClock(createGame(settings, makeRounds(1, 8, 3), ["me"]), T0);
-  const answered = submitAnswer(game, "me", [1, 2, 8], T0); // 2 of 3 with 15s left
-  assert.deepEqual(answered.answers.me, { pickedIds: [1, 2, 8], outcome: "partial", delta: 120 });
+  const answered = submitAnswer(game, "me", [1, 2, 8], T0); // 2 of 3 in the first quarter
+  assert.deepEqual(answered.answers.me, { pickedIds: [1, 2, 8], outcome: "partial", delta: 3 });
 });
 
 test("with several players the round reveals once everyone has answered or time runs out", () => {
@@ -111,10 +111,10 @@ test("with several players the round reveals once everyone has answered or time 
 
   const allIn = submitAnswer(game, "brock", [1], T0 + 3000);
   assert.equal(allIn.phase, "reveal");
-  assert.deepEqual(allIn.scores, { ash: 96, misty: -PENALTY_WRONG, brock: 60 });
+  assert.deepEqual(allIn.scores, { ash: 4, misty: 0, brock: 3 });
 
   const timedOut = tick(game, T0 + 8000);
   assert.equal(timedOut.phase, "reveal");
   assert.equal(timedOut.answers.brock.outcome, "timeout");
-  assert.deepEqual(timedOut.scores, { ash: 96, misty: -PENALTY_WRONG, brock: -PENALTY_TIMEOUT });
+  assert.deepEqual(timedOut.scores, { ash: 4, misty: 0, brock: 0 });
 });

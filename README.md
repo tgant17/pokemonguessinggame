@@ -10,6 +10,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds), and persistent per-team scoreboards.
 - Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (10-second clock by default).
 - Super Hard mode: three stacked silhouettes, pick all three from 8 options (15-second clock by default).
+- Speed scoring: the clock is split into quarters. A correct answer in the first quarter earns 4 points, then 3, 2, and 1 in the final quarter. Wrong answers and time-outs score 0 and never take points away.
 - In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI with dynamic theming based on the active team.
 

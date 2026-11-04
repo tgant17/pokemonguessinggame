@@ -498,13 +498,8 @@ export default function SpriteRushGame() {
       const stackSize = currentRound.answers.length;
       const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
       return (
-        // While hidden, the glow is applied once to the whole stack so each silhouette's own shadow
-        // can't paint over the others and give away their outlines.
-        <div
-          className={`relative h-64 w-full ${
-            revealed ? "" : "drop-shadow-[0_8px_20px_rgba(16,185,129,0.35)]"
-          }`}
-        >
+        // Hidden silhouettes get no glow at all: a shadow would paint over stacked sprites and give away outlines.
+        <div className="relative h-64 w-full">
           {currentRound.answers.map((answer, index) => {
             // Stacked silhouettes sit on top of each other, then slide apart side by side on reveal.
             const offset = layout ? `${(index - (stackSize - 1) / 2) * layout.step}%` : "0%";

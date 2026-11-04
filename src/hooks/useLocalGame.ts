@@ -28,6 +28,8 @@ export type GameView = {
   myScore: number;
   // True when this player can't answer right now: already locked in (waiting for others) or only watching.
   locked: boolean;
+  // The picks this player locked in for the current round, if any.
+  myPicks: number[] | null;
 };
 
 export type RoundResultEvent = { roundIndex: number; round: RoundData; answer: PlayerAnswer };
@@ -105,6 +107,7 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
       myAnswer: game.answers[ME],
       myScore: game.scores[ME] ?? 0,
       locked: false,
+      myPicks: game.answers[ME]?.pickedIds ?? null,
     };
   }, [game, now]);
 

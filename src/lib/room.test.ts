@@ -48,9 +48,61 @@ test("if the host disconnects the next connected player can start", () => {
   const room = twoPlayerRoom();
   room.disconnect("ash", T0);
   assert.equal(room.snapshotFor("misty", T0).hostId, "misty");
-  assert.equal(start(room, "misty"), null);
-  // Ash keeps their seat in the list while away.
+  // Ash keeps their seat in the list while away...
   assert.equal(room.snapshotFor("misty", T0).players.find((p) => p.id === "ash")?.connected, false);
+  assert.equal(start(room, "misty"), null);
+  // ...until a new game starts without them. Misty is now the host even if Ash comes back.
+  assert.deepEqual(room.snapshotFor("misty", T0).players.map((p) => p.name), ["Misty"]);
+  room.connect("ash");
+  assert.equal(room.snapshotFor("misty", T0).hostId, "misty");
+});
+
+test("the host can hand hosting to another connected player", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.handle("misty", { type: "makeHost", playerId: "misty" }, T0), "Only the host can hand over hosting.");
+  assert.equal(room.handle("ash", { type: "makeHost", playerId: "gary" }, T0), "That player isn't in the room.");
+  assert.equal(room.handle("ash", { type: "makeHost", playerId: "misty" }, T0), null);
+  assert.equal(room.snapshotFor("ash", T0).hostId, "misty");
+  assert.equal(start(room, "ash"), "Only the host can start a game.");
+  assert.equal(start(room, "misty"), null);
+});
+
+test("a round ends early once everyone still connected has answered", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [1], T0 + 500);
+  assert.equal(room.snapshotFor("ash", T0 + 500).game?.phase, "playing");
+  room.disconnect("misty", T0 + 1000);
+  const snap = room.snapshotFor("ash", T0 + 1000);
+  assert.equal(snap.game?.phase, "reveal", "no waiting out the clock for Misty");
+  assert.equal(snap.players.find((p) => p.id === "misty")?.lastResult?.outcome, "timeout");
+  assert.equal(snap.game?.frozenSecondsLeft, 7);
+
+  // The same applies if Misty had already left before answering.
+  const early = twoPlayerRoom();
+  start(early);
+  early.disconnect("misty", T0);
+  ready(early, "ash", T0);
+  assert.equal(early.snapshotFor("ash", T0).game?.phase, "playing");
+  answer(early, "ash", [1], T0 + 200);
+  assert.equal(early.snapshotFor("ash", T0 + 200).game?.phase, "reveal");
+});
+
+test("a full room makes space by dropping someone who has left", () => {
+  const room = new RoomState("PKMN");
+  for (let i = 0; i < 12; i += 1) {
+    room.connect(`p${i}`);
+    room.handle(`p${i}`, { type: "join", name: `P${i}` }, T0);
+  }
+  room.connect("late");
+  assert.equal(room.handle("late", { type: "join", name: "Late" }, T0), "This room is full (12 players).");
+  room.disconnect("p5", T0);
+  assert.equal(room.handle("late", { type: "join", name: "Late" }, T0), null);
+  const names = room.snapshotFor("late", T0).players.map((p) => p.name);
+  assert.equal(names.length, 12);
+  assert.ok(!names.includes("P5") && names.includes("Late"));
 });
 
 test("a round's clock starts when everyone's sprites are ready, or after a timeout", () => {
@@ -176,6 +228,8 @@ test("client messages are validated", () => {
     pickedIds: [3],
   });
   assert.equal(parse({ type: "answer", gameId: 1, roundIndex: 0, pickedIds: ["3"] }), null);
+  assert.deepEqual(parse({ type: "makeHost", playerId: "misty" }), { type: "makeHost", playerId: "misty" });
+  assert.equal(parse({ type: "makeHost", playerId: 7 }), null);
   assert.equal(parse({ type: "nope" }), null);
   assert.equal(parseClientMessage("{not json"), null);
 });

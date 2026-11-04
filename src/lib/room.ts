@@ -1,7 +1,7 @@
 // One multiplayer room: who's in it, who's hosting, and the game being played. The Worker in
 // party/room.ts wires this to WebSockets; everything here is plain logic so it can be unit-tested.
 
-import { createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
+import { closeRound, createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
 import { MAX_PLAYERS, type ClientMessage, type PlayerInfo, type RoomSnapshot } from "./protocol.ts";
 
 // How long a new round waits for everyone's sprites to load before starting the clock anyway.
@@ -25,6 +25,10 @@ export class RoomState {
 
   constructor(code: string) {
     this.code = code;
+  }
+
+  isEmpty() {
+    return this.connections.size === 0;
   }
 
   isConnected(id: string) {
@@ -54,7 +58,12 @@ export class RoomState {
     switch (message.type) {
       case "join": {
         const existing = this.players.get(id);
-        if (!existing && this.players.size >= MAX_PLAYERS) return `This room is full (${MAX_PLAYERS} players).`;
+        // A full room makes space by letting go of someone who has left and isn't in the current game.
+        if (!existing && this.players.size >= MAX_PLAYERS) {
+          const gone = [...this.players.keys()].find((playerId) => !this.isConnected(playerId) && !this.isPlaying(playerId));
+          if (!gone) return `This room is full (${MAX_PLAYERS} players).`;
+          this.players.delete(gone);
+        }
         this.players.set(id, { id, name: message.name });
         if (!this.hostId) this.hostId = id;
         break;
@@ -63,6 +72,11 @@ export class RoomState {
         if (!this.players.has(id)) return "Join the room first.";
         if (this.currentHost() !== id) return "Only the host can start a game.";
         if (this.game && this.game.phase !== "finished") return "A game is already running.";
+        // Players who have left drop off the list when a new game starts.
+        this.hostId = id;
+        for (const playerId of [...this.players.keys()]) {
+          if (!this.isConnected(playerId)) this.players.delete(playerId);
+        }
         const playerIds = [...this.players.keys()].filter((playerId) => this.isConnected(playerId));
         this.game = createGame(message.settings, message.rounds, playerIds);
         this.gameId += 1;
@@ -72,6 +86,13 @@ export class RoomState {
       case "ready": {
         if (!this.game || message.gameId !== this.gameId || message.roundIndex !== this.game.roundIndex) break;
         this.ready.add(id);
+        break;
+      }
+      case "makeHost": {
+        if (this.currentHost() !== id) return "Only the host can hand over hosting.";
+        if (!this.players.has(message.playerId)) return "That player isn't in the room.";
+        if (!this.isConnected(message.playerId)) return "That player is away right now.";
+        this.hostId = message.playerId;
         break;
       }
       case "answer": {
@@ -90,6 +111,9 @@ export class RoomState {
       const before = this.game;
       if (before.phase === "waiting" && this.everyoneReady(now)) {
         this.game = startClock(before, now);
+      } else if (before.phase === "playing" && this.everyonePresentAnswered()) {
+        // No need to wait out the clock for players who have left.
+        this.game = closeRound(before, now);
       } else {
         this.game = tick(before, now);
         if (this.game.phase === "waiting" && this.game.roundIndex !== before.roundIndex) this.enterWaiting(now);
@@ -146,6 +170,16 @@ export class RoomState {
   private enterWaiting(now: number) {
     this.ready = new Set();
     this.waitingSince = now;
+  }
+
+  private isPlaying(id: string) {
+    return !!this.game && this.game.phase !== "finished" && this.game.playerIds.includes(id);
+  }
+
+  private everyonePresentAnswered() {
+    if (!this.game) return false;
+    const present = this.game.playerIds.filter((id) => this.isConnected(id));
+    return present.length > 0 && present.every((id) => this.game!.answers[id]);
   }
 
   private everyoneReady(now: number) {

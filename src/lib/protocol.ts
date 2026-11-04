@@ -60,7 +60,8 @@ export type ClientMessage =
   | { type: "join"; name: string }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
-  | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] };
+  | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] }
+  | { type: "makeHost"; playerId: string };
 
 // --- Validation of messages from browsers. The server trusts nothing it receives. ---
 
@@ -144,6 +145,10 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
       if (!isIndex(data.gameId) || !isIndex(data.roundIndex) || !Array.isArray(data.pickedIds)) return null;
       if (data.pickedIds.length > 8 || !data.pickedIds.every(isIndex)) return null;
       return { type: "answer", gameId: data.gameId, roundIndex: data.roundIndex, pickedIds: data.pickedIds };
+    case "makeHost":
+      return typeof data.playerId === "string" && data.playerId.length > 0 && data.playerId.length <= 100
+        ? { type: "makeHost", playerId: data.playerId }
+        : null;
     default:
       return null;
   }

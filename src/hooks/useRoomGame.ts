@@ -57,6 +57,7 @@ export type RoomController = GameController & {
   savedName: string;
   join: (name: string) => void;
   startGame: (settings: GameSettings, rounds: RoundData[]) => void;
+  makeHost: (playerId: string) => void;
 };
 
 type Received = { snapshot: RoomSnapshot; receivedAt: number };
@@ -150,6 +151,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       myAnswer: game.myAnswer ?? undefined,
       myScore: me?.score ?? 0,
       locked: !game.inGame || game.myPicks !== null,
+      myPicks: game.myPicks ?? game.myAnswer?.pickedIds ?? null,
     };
   }, [game, endsAt, now, received?.receivedAt, me?.score]);
 
@@ -199,5 +201,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     [send],
   );
 
-  return { view, startClock, submit, room, connected, error, savedName, join, startGame };
+  const makeHost = useCallback((playerId: string) => send({ type: "makeHost", playerId }), [send]);
+
+  return { view, startClock, submit, room, connected, error, savedName, join, startGame, makeHost };
 }

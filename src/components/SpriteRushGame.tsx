@@ -224,7 +224,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const status: RoundStatus = view?.myAnswer?.outcome ?? "idle";
   const currentRound = view?.round;
   const currentRoundIndex = view?.roundIndex ?? 0;
-  const selectedIds = selection.round === currentRoundIndex ? selection.ids : [];
+  // Picks made on this screen, or after a refresh mid-round, the ones the room already has for you.
+  const selectedIds = selection.round === currentRoundIndex ? selection.ids : (view?.myPicks ?? []);
+  // The round's answers are showing: you've got your result, or (when watching a room) the round is over.
+  const roundRevealed = status !== "idle" || view?.phase === "reveal";
 
   // Stacked silhouettes stay hidden until every sprite in the round has loaded, so none pops in before the others.
   const [loadedSprites, setLoadedSprites] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
@@ -443,7 +446,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   const renderSpriteStage = () => {
     if (!currentRound) return null;
-    const revealed = status !== "idle";
+    const revealed = roundRevealed;
     const stackSize = currentRound.answers.length;
     const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
     return (
@@ -520,6 +523,9 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 <span className="ml-2 whitespace-nowrap font-pixel text-base font-normal">{formatDelta(delta)}</span>
               )}
             </>
+          ) : roundRevealed ? (
+            // Watching a room: there's no result of your own to show, just the answer.
+            <>{`${currentRound.answers.length > 1 ? "Those were" : "It's"} ${joinNames(currentRound.answers.map((answer) => formatName(answer.name)))}!`}</>
           ) : (
             <>{isMulti ? `Who are these ${answerCountWord}?` : "Who's that Pokémon?"}</>
           )}
@@ -645,7 +651,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         </div>
       );
     }
-    const revealed = status !== "idle";
+    const revealed = roundRevealed;
     return (
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
         {currentRound.options.map((option) => {
@@ -976,14 +982,24 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           </p>
           <p className="mt-1 break-all text-xs text-ink-soft">{roomUrl}</p>
         </div>
-        <button
-          type="button"
-          onClick={copyRoomLink}
-          className={`${choiceButtonClass(false)} shrink-0 px-3 py-2 text-sm`}
-        >
-          <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
-          {copied ? "Copied!" : "Copy invite link"}
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={copyRoomLink}
+            className={`${choiceButtonClass(false)} px-3 py-2 text-sm`}
+          >
+            <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
+            {copied ? "Copied!" : "Copy invite link"}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            className={`${choiceButtonClass(false)} px-3 py-2 text-sm text-ink-soft`}
+          >
+            <SketchFrame radius={10} wobble={0.8} strokeWidth={2} fill="paper" stroke="var(--ink-faint)" />
+            Leave room
+          </button>
+        </div>
       </div>
       {standings.length > 0 && (
         <ol className="mt-4 flex flex-col gap-2">
@@ -1003,6 +1019,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   {player.id === room?.hostId && <span className="ml-1 text-xs text-ink-soft">host</span>}
                   {!player.connected && <span className="ml-1 text-xs">away</span>}
                 </span>
+                {room?.isHost && isSetup && !isYou && player.connected && (
+                  <button
+                    type="button"
+                    onClick={() => roomGame.makeHost(player.id)}
+                    className={`${choiceButtonClass(false)} px-2 py-1 text-xs`}
+                  >
+                    <SketchFrame radius={8} wobble={0.6} strokeWidth={1.8} fill="paper" />
+                    Make host
+                  </button>
+                )}
                 {view?.phase === "playing" && player.answered && (
                   <span className="text-xs text-ink-soft">answered</span>
                 )}
@@ -1074,8 +1100,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     if (room && !room.joined) return "Pick a name";
     if (room && isSetup && !room.isHost) return `Room ${room.code}`;
     if (isSetup) return "Set up a game";
-    if (view?.locked && status === "idle") return room?.inGame ? "Locked in" : "Watching";
-    if (status !== "idle") return "Next round…";
+    if (roundRevealed) return "Next round…";
+    if (view?.locked) return room?.inGame ? "Locked in" : "Watching";
     if (isMulti) return `Pick ${answerCountWord} · ${selectedIds.length}/${modeConfig.answerCount}`;
     return "Tap the right name";
   };
@@ -1124,7 +1150,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             ) : (
               <>
                 {renderAnswers()}
-                {gameState === "playing" && status === "idle" && view?.locked
+                {gameState === "playing" && !roundRevealed && view?.locked
                   ? renderLockedIn()
                   : isMulti && gameState === "playing" && status === "idle" && renderSendButton()}
               </>

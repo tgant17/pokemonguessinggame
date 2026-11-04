@@ -1,0 +1,181 @@
+import assert from "node:assert/strict";
+import { test } from "node:test";
+import type { GameSettings } from "./engine.ts";
+import { MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
+import { isRoomCode, makeRoomCode, normalizeRoomCode, parseClientMessage, type ClientMessage } from "./protocol.ts";
+import { READY_TIMEOUT_MS, RoomState } from "./room.ts";
+
+const mon = (id: number): PokemonSprite => ({
+  id,
+  name: `mon-${id}`,
+  spriteUrl: `https://assets.pokemon.com/assets/cms2/img/pokedex/full/${String(id).padStart(3, "0")}.png`,
+});
+const makeRounds = (count: number, optionCount = 4, answerCount = 1): RoundData[] =>
+  Array.from({ length: count }, (_, n) => {
+    const options = Array.from({ length: optionCount }, (_, i) => mon(n * 10 + i + 1));
+    return { options, answers: options.slice(0, answerCount) };
+  });
+const settings: GameSettings = { mode: "normal", totalRounds: 5, questionTime: 8 };
+const T0 = 5_000_000;
+
+// A room with Ash (host) and Misty connected and joined.
+const twoPlayerRoom = () => {
+  const room = new RoomState("PKMN");
+  for (const [id, name] of [["ash", "Ash"], ["misty", "Misty"]]) {
+    room.connect(id);
+    room.handle(id, { type: "join", name }, T0);
+  }
+  return room;
+};
+const start = (room: RoomState, by = "ash", now = T0): string | null =>
+  room.handle(by, { type: "start", settings, rounds: makeRounds(5) }, now);
+const ready = (room: RoomState, id: string, now: number, roundIndex = 0) =>
+  room.handle(id, { type: "ready", gameId: 1, roundIndex }, now);
+const answer = (room: RoomState, id: string, pickedIds: number[], now: number, roundIndex = 0) =>
+  room.handle(id, { type: "answer", gameId: 1, roundIndex, pickedIds }, now);
+
+test("the first player to join hosts, and only the host can start", () => {
+  const room = twoPlayerRoom();
+  const snapshot = room.snapshotFor("misty", T0);
+  assert.equal(snapshot.hostId, "ash");
+  assert.deepEqual(snapshot.players.map((p) => p.name), ["Ash", "Misty"]);
+  assert.equal(start(room, "misty"), "Only the host can start a game.");
+  assert.equal(start(room), null);
+  assert.equal(room.snapshotFor("misty", T0).game?.phase, "waiting");
+});
+
+test("if the host disconnects the next connected player can start", () => {
+  const room = twoPlayerRoom();
+  room.disconnect("ash", T0);
+  assert.equal(room.snapshotFor("misty", T0).hostId, "misty");
+  assert.equal(start(room, "misty"), null);
+  // Ash keeps their seat in the list while away.
+  assert.equal(room.snapshotFor("misty", T0).players.find((p) => p.id === "ash")?.connected, false);
+});
+
+test("a round's clock starts when everyone's sprites are ready, or after a timeout", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0 + 100);
+  assert.equal(room.snapshotFor("ash", T0 + 100).game?.phase, "waiting");
+  ready(room, "misty", T0 + 300);
+  const snap = room.snapshotFor("ash", T0 + 300);
+  assert.equal(snap.game?.phase, "playing");
+  assert.equal(snap.game?.remainingMs, 8000);
+
+  const slow = twoPlayerRoom();
+  start(slow);
+  ready(slow, "ash", T0 + 100);
+  assert.equal(slow.nextWakeAt(), T0 + READY_TIMEOUT_MS);
+  slow.advance(T0 + READY_TIMEOUT_MS);
+  assert.equal(slow.snapshotFor("ash", T0 + READY_TIMEOUT_MS).game?.phase, "playing");
+});
+
+test("answers stay private until everyone has answered, then all results are revealed", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [1], T0 + 500);
+
+  const mid = room.snapshotFor("misty", T0 + 600);
+  assert.equal(mid.game?.phase, "playing");
+  assert.equal(mid.players.find((p) => p.id === "ash")?.answered, true);
+  assert.equal(mid.players.find((p) => p.id === "ash")?.lastResult, null, "no peeking at Ash's result");
+  assert.equal(mid.players.find((p) => p.id === "ash")?.score, 0);
+  assert.equal(room.snapshotFor("ash", T0 + 600).game?.myAnswer, null, "Ash waits for the reveal too");
+  assert.deepEqual(room.snapshotFor("ash", T0 + 600).game?.myPicks, [1]);
+
+  answer(room, "misty", [2], T0 + 3000);
+  const revealed = room.snapshotFor("ash", T0 + 3000);
+  assert.equal(revealed.game?.phase, "reveal");
+  assert.deepEqual(revealed.game?.myAnswer, { pickedIds: [1], outcome: "correct", delta: 4 });
+  assert.deepEqual(
+    revealed.players.map((p) => [p.name, p.score, p.lastResult?.outcome]),
+    [
+      ["Ash", 4, "correct"],
+      ["Misty", 0, "wrong"],
+    ],
+  );
+  assert.equal(room.nextWakeAt(), T0 + 3000 + MODE_CONFIG.normal.revealDelay);
+});
+
+test("the round times out on the server clock, then the next round waits for sprites again", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [1], T0 + 500);
+  assert.equal(room.nextWakeAt(), T0 + 8000);
+  room.advance(T0 + 8000);
+  const timedOut = room.snapshotFor("misty", T0 + 8000);
+  assert.equal(timedOut.game?.myAnswer?.outcome, "timeout");
+
+  room.advance(room.nextWakeAt()!);
+  const next = room.snapshotFor("misty", T0 + 9000);
+  assert.equal(next.game?.phase, "waiting");
+  assert.equal(next.game?.roundIndex, 1);
+  assert.equal(next.game?.myPicks, null);
+  // A ready message for the old round doesn't count for the new one.
+  ready(room, "ash", T0 + 9000, 0);
+  ready(room, "misty", T0 + 9000, 0);
+  assert.equal(room.snapshotFor("ash", T0 + 9000).game?.phase, "waiting");
+});
+
+test("someone joining mid-game watches until the next game", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  room.connect("brock");
+  room.handle("brock", { type: "join", name: "Brock" }, T0);
+  const watching = room.snapshotFor("brock", T0);
+  assert.equal(watching.game?.inGame, false);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  assert.equal(room.snapshotFor("brock", T0).game?.phase, "playing", "the watcher doesn't hold up the clock");
+});
+
+test("a game can't be started twice, and a finished game can be replayed", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  assert.equal(start(room), "A game is already running.");
+});
+
+test("room codes", () => {
+  const code = makeRoomCode();
+  assert.ok(isRoomCode(code), code);
+  assert.equal(normalizeRoomCode(" pk-a "), "PKA");
+  assert.equal(isRoomCode("PKMN"), true);
+  assert.equal(isRoomCode("PIKA"), false, "no I, L or O");
+  assert.equal(isRoomCode("PIK1"), false);
+  assert.equal(isRoomCode("OIL0"), false);
+});
+
+test("client messages are validated", () => {
+  const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
+  assert.deepEqual(parse({ type: "join", name: "  Ash \n Ketchum  " }), { type: "join", name: "Ash Ketchum" });
+  assert.equal(parse({ type: "join", name: "   " }), null);
+  assert.equal(parse({ type: "join", name: "x".repeat(50) })?.type, "join");
+  assert.equal((parse({ type: "join", name: "x".repeat(50) }) as { name: string }).name.length, 20);
+
+  const good: ClientMessage = { type: "start", settings, rounds: makeRounds(5) };
+  assert.deepEqual(parse(good), good);
+  assert.equal(parse({ ...good, rounds: makeRounds(4) }), null, "wrong round count");
+  assert.equal(parse({ ...good, settings: { ...settings, totalRounds: 7 } }), null, "not a round option");
+  assert.equal(parse({ ...good, settings: { ...settings, mode: "impossible" } }), null);
+  const evil = makeRounds(5);
+  evil[2].options[1] = { ...evil[2].options[1], spriteUrl: "javascript:alert(1)" };
+  assert.equal(parse({ ...good, rounds: evil }), null, "sprite URLs must be from known hosts");
+  const stray = makeRounds(5);
+  stray[0].answers = [mon(99)];
+  assert.equal(parse({ ...good, rounds: stray }), null, "answers must be options");
+
+  assert.deepEqual(parse({ type: "answer", gameId: 1, roundIndex: 0, pickedIds: [3] }), {
+    type: "answer",
+    gameId: 1,
+    roundIndex: 0,
+    pickedIds: [3],
+  });
+  assert.equal(parse({ type: "answer", gameId: 1, roundIndex: 0, pickedIds: ["3"] }), null);
+  assert.equal(parse({ type: "nope" }), null);
+  assert.equal(parseClientMessage("{not json"), null);
+});

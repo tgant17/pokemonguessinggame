@@ -406,7 +406,7 @@ export default function SpriteRushGame() {
     recordRoundPlayed();
     logRound("timeout", 0, []);
     setTimeout(() => advanceRound(), modeConfig.revealDelay);
-  }, [status, advanceRound, applyScore, recordRoundPlayed, logRound, modeConfig]);
+  }, [status, advanceRound, recordRoundPlayed, logRound, modeConfig]);
 
   useEffect(() => {
     if (gameState !== "playing" || status !== "idle" || !spritesReady) return;

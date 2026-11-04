@@ -24,7 +24,7 @@ import {
   type RoundStatus,
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
-import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
+import { isMultiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
 import { MAX_NAME_LENGTH, makeRoomCode, normalizeRoomCode, isRoomCode } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 
@@ -142,8 +142,16 @@ function Message({ tag, children, className = "" }: { tag: Tag; children: ReactN
 }
 
 // Solo and pass-the-device play by default; pass a room code to play in a multiplayer room.
-export default function SpriteRushGame({ roomCode = null }: { roomCode?: string | null }) {
+// partyHost is the room server's address (PUBLIC_PARTY_HOST), read by the page on the server.
+export default function SpriteRushGame({
+  roomCode = null,
+  partyHost = null,
+}: {
+  roomCode?: string | null;
+  partyHost?: string | null;
+}) {
   const inRoom = roomCode !== null;
+  const multiplayerAvailable = isMultiplayerAvailable(partyHost);
   const router = useRouter();
   const [pokemonNames, setPokemonNames] = useState<string[]>([]);
   const [namesReady, setNamesReady] = useState(false);
@@ -194,7 +202,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   );
 
   const localGame = useLocalGame(handleRoundResult);
-  const roomGame = useRoomGame(multiplayerAvailable ? roomCode : null, handleRoundResult);
+  const roomGame = useRoomGame(multiplayerAvailable ? roomCode : null, partyHost, handleRoundResult);
   const room = inRoom ? roomGame.room : null;
   const game: GameController = inRoom ? roomGame : localGame;
   const { view } = game;

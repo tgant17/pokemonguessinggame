@@ -7,12 +7,14 @@ import type { RoundData } from "@/lib/game";
 import type { ClientMessage, PlayerInfo, RoomSnapshot, ServerMessage } from "@/lib/protocol";
 import type { GameController, GameView, RoundResultEvent } from "./useLocalGame";
 
-// Where the room server (party/room.ts) runs. Set NEXT_PUBLIC_PARTY_HOST to the deployed Worker's host
-// (e.g. pokemonguessinggame-rooms.<you>.workers.dev). In development it defaults to `wrangler dev` on
-// port 8787 of whatever host served the page, so phones on the same Wi-Fi can join too.
-const CONFIGURED_HOST = process.env.NEXT_PUBLIC_PARTY_HOST;
-export const multiplayerAvailable = !!CONFIGURED_HOST || process.env.NODE_ENV === "development";
-const partyHost = () => CONFIGURED_HOST ?? (typeof window === "undefined" ? "" : `${window.location.hostname}:8787`);
+// Where the room server (party/room.ts) runs. The pages read PUBLIC_PARTY_HOST on the server (e.g.
+// pokemonguessinggame-rooms.<you>.workers.dev) and pass it in as `configuredHost`. In development it
+// defaults to `wrangler dev` on port 8787 of whatever host served the page, so phones on the same Wi-Fi
+// can join too.
+const IS_DEV = process.env.NODE_ENV === "development";
+export const isMultiplayerAvailable = (configuredHost: string | null) => !!configuredHost || IS_DEV;
+const resolveHost = (configuredHost: string | null) =>
+  configuredHost || (typeof window === "undefined" ? "" : `${window.location.hostname}:8787`);
 
 const PLAYER_ID_KEY = "pgg-player-id";
 const PLAYER_NAME_KEY = "pgg-player-name";
@@ -62,8 +64,12 @@ export type RoomController = GameController & {
 
 type Received = { snapshot: RoomSnapshot; receivedAt: number };
 
-// Connects to a multiplayer room. Pass null to stay disconnected (solo play).
-export function useRoomGame(code: string | null, onRoundResult: (event: RoundResultEvent) => void): RoomController {
+// Connects to a multiplayer room. Pass a null code to stay disconnected (solo play).
+export function useRoomGame(
+  code: string | null,
+  configuredHost: string | null,
+  onRoundResult: (event: RoundResultEvent) => void,
+): RoomController {
   // The player id lives in localStorage so a refresh (or a dropped connection) keeps your seat and score.
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [savedName, setSavedName] = useState("");
@@ -83,7 +89,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
   const [error, setError] = useState<string | null>(null);
 
   const socket = usePartySocket({
-    host: partyHost(),
+    host: resolveHost(configuredHost),
     party: "room",
     room: code ?? "none",
     id: playerId ?? undefined,

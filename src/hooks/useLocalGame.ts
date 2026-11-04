@@ -32,7 +32,8 @@ export type GameView = {
   myPicks: number[] | null;
 };
 
-export type RoundResultEvent = { roundIndex: number; round: RoundData; answer: PlayerAnswer };
+// winnerName: in a winner-takes-all room round, who took the pot (if anyone).
+export type RoundResultEvent = { roundIndex: number; round: RoundData; answer: PlayerAnswer; winnerName?: string };
 
 export type GameController = {
   view: GameView | null;

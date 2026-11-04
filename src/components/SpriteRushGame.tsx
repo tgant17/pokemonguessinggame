@@ -50,6 +50,10 @@ type RoundRecord = {
   outcome: RoundOutcome;
   delta: number;
   tag: Tag;
+  // Winner takes all: whether this answer took the pot, or else who did (if anyone).
+  won?: boolean;
+  winnerName?: string;
+  winnerTakesAll?: boolean;
 };
 
 
@@ -151,6 +155,9 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [setupRounds, setTotalRounds] = useState(5);
   const [setupMode, setMode] = useState<GameMode>("normal");
   const [setupTime, setQuestionTime] = useState(MODE_CONFIG.normal.defaultTime);
+  // Extras (rooms only): optional rule changes tucked under the main settings.
+  const [showExtras, setShowExtras] = useState(false);
+  const [setupWinnerTakesAll, setWinnerTakesAll] = useState(false);
   const [selection, setSelection] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -168,10 +175,11 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   // The round-result handler reads the tag through a ref, since in a room the tag (your name) comes from
   // the room hook, which itself needs the handler.
   const tagRef = useRef<Tag>(teamTag);
+  const winnerTakesAllRef = useRef(false);
 
   // Each finished round goes to the chat log, and in solo play to the active team's totals.
   const handleRoundResult = useCallback(
-    ({ roundIndex, round, answer }: RoundResultEvent) => {
+    ({ roundIndex, round, answer, winnerName }: RoundResultEvent) => {
       if (!inRoom) setTeams((prevTeams) =>
         prevTeams.map((team) =>
           team.name === activeTeam ? { ...team, score: team.score + answer.delta, rounds: team.rounds + 1 } : team,
@@ -187,6 +195,9 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           outcome: answer.outcome,
           delta: answer.delta,
           tag: tagRef.current,
+          won: answer.won,
+          winnerName,
+          winnerTakesAll: winnerTakesAllRef.current,
         },
       ]);
     },
@@ -217,6 +228,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const mode = playing?.settings.mode ?? setupMode;
   const totalRounds = playing?.settings.totalRounds ?? setupRounds;
   const questionTime = playing?.settings.questionTime ?? setupTime;
+  const winnerTakesAll = inRoom && (view ? !!view.settings.winnerTakesAll : setupWinnerTakesAll);
+  useEffect(() => {
+    winnerTakesAllRef.current = winnerTakesAll;
+  }, [winnerTakesAll]);
   const modeConfig = MODE_CONFIG[mode];
   const isMulti = modeConfig.answerCount > 1;
   const timeLeft = playing?.timeLeft ?? questionTime;
@@ -283,10 +298,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     setSelection({ round: -1, ids: [] });
     setHistory([]);
     const settings = { mode: setupMode, totalRounds: setupRounds, questionTime: setupTime };
-    if (inRoom) roomStartGame(settings, builtRounds);
+    if (inRoom) roomStartGame(setupWinnerTakesAll ? { ...settings, winnerTakesAll: true } : settings, builtRounds);
     else startLocalGame(settings, builtRounds);
     setIsPreparing(false);
-  }, [pokemonNames, setupMode, setupRounds, setupTime, startLocalGame, roomStartGame, inRoom]);
+  }, [pokemonNames, setupMode, setupRounds, setupTime, setupWinnerTakesAll, startLocalGame, roomStartGame, inRoom]);
 
   // In a room the host starts games, so everyone clears the last game's log when a new one begins.
   const roomGameId = room?.gameId ?? null;
@@ -358,10 +373,18 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     ? `${capitalize(answerCountWord)} silhouettes are stacked on top of each other. Pick all ${answerCountWord} Pokémon before the ${questionTime}-second clock runs out!`
     : `Study the silhouette and choose the matching Pokémon before the ${questionTime}-second clock runs out. Quicker answers earn more points!`;
 
-  const describeRound = (record: Pick<RoundRecord, "answers" | "outcome" | "pickedIds">) => {
+  const describeRound = (
+    record: Pick<RoundRecord, "answers" | "outcome" | "pickedIds" | "won" | "winnerName" | "winnerTakesAll">,
+  ) => {
     const names = joinNames(record.answers.map((answer) => formatName(answer.name)));
     const multi = record.answers.length > 1;
     const total = record.answers.length;
+    if (record.winnerTakesAll) {
+      const itWas = multi ? `It was ${names}.` : `It's ${names}!`;
+      if (record.won) return `First! You take the pot. ${itWas}`;
+      if (record.winnerName) return `${record.winnerName} got it first! ${itWas}`;
+      if (record.outcome !== "timeout") return `Nobody got it! ${itWas}`;
+    }
     switch (record.outcome) {
       case "correct":
         return multi ? `${total === 2 ? "Both" : `All ${NUMBER_WORDS[total] ?? total}`}! ${names}` : `It's ${names}!`;
@@ -377,6 +400,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   const recordDetail = (record: RoundRecord, options?: PokemonSprite[]) => {
     const hits = record.answers.filter((answer) => record.pickedIds.includes(answer.id)).length;
+    if (record.won) return "first! took the pot";
+    if (record.winnerName) return `${record.winnerName} took the pot`;
     switch (record.outcome) {
       case "correct":
         return "got it";
@@ -518,7 +543,12 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   className="h-7 w-7"
                 />
               </span>
-              {describeRound({ answers: currentRound.answers, outcome, pickedIds: selectedIds })}
+              {describeRound({
+                answers: currentRound.answers,
+                outcome,
+                pickedIds: selectedIds,
+                ...history.find((record) => record.round === currentRoundIndex),
+              })}
               {delta !== undefined && (
                 <span className="ml-2 whitespace-nowrap font-pixel text-base font-normal">{formatDelta(delta)}</span>
               )}
@@ -592,7 +622,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         )}
         {history.length > 0 && (
           <Notice>
-            {MODE_CONFIG[mode].label} · {totalRounds} rounds · {questionTime}s
+            {MODE_CONFIG[mode].label} · {totalRounds} rounds · {questionTime}s{winnerTakesAll ? " · winner takes all" : ""}
           </Notice>
         )}
         {pastRounds.map(renderHistoryRow)}
@@ -729,6 +759,50 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       selected ? "text-paper" : "text-ink"
     }`;
 
+  const renderExtras = () => (
+    <div className="flex flex-col gap-2">
+      <button
+        type="button"
+        onClick={() => setShowExtras((prev) => !prev)}
+        aria-expanded={showExtras}
+        className="flex items-center gap-1.5 self-start rounded focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+      >
+        <SectionLabel>Extras</SectionLabel>
+        <span className={`inline-flex transition-transform ${showExtras ? "rotate-180" : ""}`} aria-hidden="true">
+          <SketchIcon name="arrowDown" className="h-3.5 w-3.5 text-ink-soft" strokeWidth={2.2} />
+        </span>
+        {!showExtras && setupWinnerTakesAll && (
+          <span className="font-hand text-base font-bold leading-none">winner takes all on</span>
+        )}
+      </button>
+      {showExtras && (
+        <button
+          type="button"
+          role="switch"
+          aria-checked={setupWinnerTakesAll}
+          onClick={() => setWinnerTakesAll((prev) => !prev)}
+          disabled={isPreparing}
+          className={`${choiceButtonClass(false)} flex items-center gap-3 px-3 py-2.5 text-left`}
+        >
+          <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
+          <span className="min-w-0 flex-1">
+            <span className="block text-base leading-tight">Winner takes all</span>
+            <span className="mt-0.5 block text-xs leading-snug text-ink-soft">
+              The first right answer takes everyone&apos;s points for the round. One guess each, no partial credit.
+            </span>
+          </span>
+          {/* Hand-drawn switch: the knob slides right and the track fills in when it's on. */}
+          <span className="relative isolate h-7 w-12 shrink-0">
+            <SketchFrame radius={14} wobble={0.6} strokeWidth={2.2} fill={setupWinnerTakesAll ? "ink" : "paper"} />
+            <span className={`absolute top-1 h-5 w-5 transition-[left] duration-200 ${setupWinnerTakesAll ? "left-6" : "left-1"}`}>
+              <SketchFrame radius={10} wobble={0.5} strokeWidth={2} fill="paper" />
+            </span>
+          </span>
+        </button>
+      )}
+    </div>
+  );
+
   const renderGameSetup = () => (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
@@ -828,6 +902,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           </p>
         </div>
       </div>
+
+      {inRoom && renderExtras()}
 
       <button
         type="button"
@@ -965,7 +1041,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const renderLockedIn = () => (
     <p aria-live="polite" className="mt-3 text-center font-hand text-xl font-bold leading-tight">
       {room?.inGame
-        ? `Locked in! Waiting for ${waitingOn} more…`
+        ? winnerTakesAll
+          ? // A right answer would have ended the round, so still being locked in means it wasn't.
+            `Not it! You're out this round. ${waitingOn} still guessing…`
+          : `Locked in! Waiting for ${waitingOn} more…`
         : "You joined mid-game, so you're watching. You'll play in the next game!"}
     </p>
   );

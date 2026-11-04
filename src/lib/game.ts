@@ -193,8 +193,8 @@ export const scorePicks = (
 
 export const timeoutResult = (): RoundResult => ({ outcome: "timeout", delta: 0 });
 
-// Winner takes all: every team plays the same round at once and the first right answer takes the whole pot,
-// which is what every team could have earned at that moment (speed points × number of teams).
+// Winner takes all: the first right answer takes the whole pot, which is what every player could have
+// earned at that moment (speed points × number of players). Everyone else scores nothing that round.
 export const winnerTakesAllPot = (timeLeft: number, questionTime: number, teamCount: number) =>
   speedPoints(timeLeft, questionTime) * teamCount;
 

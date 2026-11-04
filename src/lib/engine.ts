@@ -2,11 +2,22 @@
 // a new state instead of mutating, so the same engine can run in the browser (solo play) or on a room
 // server (multiplayer) and be unit-tested without timers. Keep it free of React/Next imports.
 
-import { MODE_CONFIG, scorePicks, timeoutResult, type GameMode, type RoundData, type RoundOutcome } from "./game.ts";
+import {
+  MODE_CONFIG,
+  isFullyCorrect,
+  scorePicks,
+  timeoutResult,
+  winnerTakesAllPot,
+  type GameMode,
+  type RoundData,
+  type RoundOutcome,
+} from "./game.ts";
 
-export type GameSettings = { mode: GameMode; totalRounds: number; questionTime: number };
+// winnerTakesAll: the first player to answer fully right takes the whole pot and the round ends there.
+export type GameSettings = { mode: GameMode; totalRounds: number; questionTime: number; winnerTakesAll?: boolean };
 
-export type PlayerAnswer = { pickedIds: number[]; outcome: RoundOutcome; delta: number };
+// won is set on the answer that took the pot in a winner-takes-all round.
+export type PlayerAnswer = { pickedIds: number[]; outcome: RoundOutcome; delta: number; won?: true };
 
 // waiting:  the round is set up but its clock hasn't started (e.g. sprites still loading)
 // playing:  the clock is running and players can answer
@@ -86,7 +97,22 @@ export const submitAnswer = (state: GameState, playerId: string, pickedIds: numb
     return state;
   }
   // Points come from whole seconds left, matching the countdown players see.
-  const result = scorePicks(round.answers, picks, secondsLeft(state, now), state.settings.questionTime);
+  const timeLeft = secondsLeft(state, now);
+  const { questionTime, winnerTakesAll } = state.settings;
+  const result = scorePicks(round.answers, picks, timeLeft, questionTime);
+  if (winnerTakesAll) {
+    // Answers are applied in the order they arrive, so the first fully right one wins. Anything else,
+    // including partly right, scores nothing; a player who answered wrong is out for the round.
+    if (isFullyCorrect(round.answers, picks)) {
+      const pot = winnerTakesAllPot(timeLeft, questionTime, state.playerIds.length);
+      const answers = { ...state.answers, [playerId]: { pickedIds: picks, outcome: result.outcome, delta: pot, won: true as const } };
+      // Nobody else can score now, so the round ends straight away.
+      return closeRound({ ...state, answers }, now);
+    }
+    const answers = { ...state.answers, [playerId]: { pickedIds: picks, outcome: result.outcome, delta: 0 } };
+    if (state.playerIds.every((id) => answers[id])) return reveal(state, now, answers);
+    return { ...state, answers };
+  }
   const answers = { ...state.answers, [playerId]: { pickedIds: picks, ...result } };
   if (state.playerIds.every((id) => answers[id])) return reveal(state, now, answers);
   return { ...state, answers };

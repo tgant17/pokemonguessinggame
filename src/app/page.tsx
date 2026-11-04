@@ -2,31 +2,20 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-type PokemonSpriteResponse = {
-  id: number;
-  name: string;
-  sprites?: {
-    front_default?: string | null;
-    other?: {
-      ["official-artwork"]?: {
-        front_default?: string | null;
-      };
-      showdown?: {
-        front_default?: string | null;
-      };
-      home?: {
-        front_default?: string | null;
-      };
-    };
-  };
-};
-
-type PokemonSprite = {
-  id: number;
-  name: string;
-  spriteUrl: string;
-};
+import {
+  MODE_CONFIG,
+  ROUND_OPTIONS,
+  buildRounds,
+  formatName,
+  joinNames,
+  scorePicks,
+  timeoutResult,
+  type GameMode,
+  type PokemonSprite,
+  type RoundData,
+  type RoundResult,
+  type RoundStatus,
+} from "@/lib/game";
 
 type TeamState = {
   name: string;
@@ -35,47 +24,6 @@ type TeamState = {
   rounds: number;
 };
 
-type RoundData = {
-  options: PokemonSprite[];
-  answers: PokemonSprite[];
-};
-
-type GameMode = "normal" | "hard" | "superHard";
-
-type RoundStatus = "idle" | "correct" | "partial" | "wrong" | "timeout";
-
-// defaultTime is the timer each mode starts on; players can still pick any of TIMER_OPTIONS.
-const MODE_CONFIG: Record<
-  GameMode,
-  { label: string; description: string; optionCount: number; answerCount: number; defaultTime: number; revealDelay: number }
-> = {
-  normal: {
-    label: "Normal",
-    description: "1 silhouette · pick 1 of 4",
-    optionCount: 4,
-    answerCount: 1,
-    defaultTime: 8,
-    revealDelay: 900,
-  },
-  hard: {
-    label: "Hard",
-    description: "2 stacked · pick 2 of 6",
-    optionCount: 6,
-    answerCount: 2,
-    defaultTime: 10,
-    revealDelay: 1800,
-  },
-  superHard: {
-    label: "Super Hard",
-    description: "3 stacked · pick 3 of 8",
-    optionCount: 8,
-    answerCount: 3,
-    defaultTime: 15,
-    revealDelay: 2400,
-  },
-};
-
-const ROUND_OPTIONS = [5, 10, 25];
 // Each timer has a Pokémon mascot that matches its pace (icons live in public/timer-icons).
 const TIMER_OPTIONS = [
   { seconds: 5, pace: "Blitz", pokemon: "Jolteon", icon: "/timer-icons/jolteon.png" },
@@ -96,48 +44,12 @@ const REVEAL_LAYOUT: Record<number, { step: number; scale: number }> = {
 
 const NUMBER_WORDS = ["zero", "one", "two", "three"];
 
-const joinNames = (names: string[]) =>
-  names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-
 const TEAM_PRESETS: TeamState[] = [
   { name: "Red", color: "#ef4444", score: 0, rounds: 0 },
   { name: "Blue", color: "#3b82f6", score: 0, rounds: 0 },
   { name: "Yellow", color: "#facc15", score: 0, rounds: 0 },
   { name: "Green", color: "#22c55e", score: 0, rounds: 0 },
 ];
-
-const SCORE_PER_SECOND = 12;
-const PENALTY_WRONG = 15;
-const PENALTY_TIMEOUT = 12;
-
-const spriteFromResponse = (data: PokemonSpriteResponse): string | null => {
-  const padded = data.id.toString().padStart(3, "0");
-  const pokemonAssetsUrl =
-    data.id >= 1 && data.id <= 1010 ? `https://assets.pokemon.com/assets/cms2/img/pokedex/full/${padded}.png` : null;
-  return (
-    pokemonAssetsUrl ??
-    data?.sprites?.other?.["official-artwork"]?.front_default ??
-    data?.sprites?.other?.showdown?.front_default ??
-    data?.sprites?.front_default ??
-    data?.sprites?.other?.home?.front_default ??
-    null
-  );
-};
-
-const shuffle = <T,>(array: T[]) => {
-  const copy = [...array];
-  for (let i = copy.length - 1; i > 0; i -= 1) {
-    const j = Math.floor(Math.random() * (i + 1));
-    [copy[i], copy[j]] = [copy[j], copy[i]];
-  }
-  return copy;
-};
-
-const formatName = (name: string) =>
-  name
-    .split("-")
-    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-    .join(" ");
 
 const BoltIcon = () => (
   <svg viewBox="0 0 24 24" aria-hidden="true" className="h-3 w-3 shrink-0" fill="currentColor">
@@ -183,63 +95,12 @@ export default function SpriteRushGame() {
     loadNames();
   }, []);
 
-  const fetchPokemonSprite = useCallback(async (name: string): Promise<PokemonSprite | null> => {
-    try {
-      const res = await fetch(`https://pokeapi.co/api/v2/pokemon/${name}`);
-      if (!res.ok) return null;
-      const data = (await res.json()) as PokemonSpriteResponse;
-      const spriteUrl = spriteFromResponse(data);
-      if (!spriteUrl) return null;
-      return { id: data.id, name: data.name, spriteUrl };
-    } catch {
-      return null;
-    }
-  }, []);
-
-  const buildRound = useCallback(
-    async (optionCount: number, answerCount: number): Promise<RoundData | null> => {
-      if (!pokemonNames.length) return null;
-      const candidates: PokemonSprite[] = [];
-      const triedNames = new Set<string>();
-      let attempts = 0;
-      while (candidates.length < optionCount && attempts < 150) {
-        // Fetch the missing options in parallel so 6-option rounds stay quick to prepare.
-        const batch: string[] = [];
-        const needed = optionCount - candidates.length;
-        while (batch.length < needed && triedNames.size < pokemonNames.length) {
-          const candidate = pokemonNames[Math.floor(Math.random() * pokemonNames.length)];
-          if (!candidate || triedNames.has(candidate)) continue;
-          triedNames.add(candidate);
-          batch.push(candidate);
-        }
-        if (!batch.length) break;
-        attempts += batch.length;
-        const sprites = await Promise.all(batch.map((name) => fetchPokemonSprite(name)));
-        for (const sprite of sprites) {
-          if (sprite && candidates.length < optionCount && !candidates.some((c) => c.id === sprite.id)) {
-            candidates.push(sprite);
-          }
-        }
-      }
-      if (candidates.length < optionCount) return null;
-      const options = shuffle(candidates);
-      const answers = shuffle(options).slice(0, answerCount);
-      return { options, answers };
-    },
-    [pokemonNames, fetchPokemonSprite],
-  );
-
   const prepareRounds = useCallback(async () => {
     if (!pokemonNames.length) return;
     setIsPreparing(true);
     setErrorMessage(null);
-    const builtRounds: RoundData[] = [];
-    while (builtRounds.length < totalRounds) {
-      const round = await buildRound(modeConfig.optionCount, modeConfig.answerCount);
-      if (!round) break;
-      builtRounds.push(round);
-    }
-    if (builtRounds.length < totalRounds) {
+    const builtRounds = await buildRounds(pokemonNames, mode, totalRounds);
+    if (!builtRounds) {
       setErrorMessage("Unable to prefetch enough sprites. Please try again.");
       setIsPreparing(false);
       return;
@@ -252,7 +113,7 @@ export default function SpriteRushGame() {
     setSelectedIds([]);
     setGameState("playing");
     setIsPreparing(false);
-  }, [buildRound, pokemonNames.length, totalRounds, modeConfig, questionTime]);
+  }, [pokemonNames, mode, totalRounds, questionTime]);
 
   const advanceRound = useCallback(() => {
     setCurrentRoundIndex((prev) => {
@@ -287,8 +148,9 @@ export default function SpriteRushGame() {
 
   const handleTimeout = useCallback(() => {
     if (status !== "idle") return;
-    setStatus("timeout");
-    applyScore(-PENALTY_TIMEOUT);
+    const { outcome, delta } = timeoutResult();
+    setStatus(outcome);
+    applyScore(delta);
     recordRoundPlayed();
     setTimeout(() => advanceRound(), modeConfig.revealDelay);
   }, [status, advanceRound, applyScore, recordRoundPlayed, modeConfig]);
@@ -308,14 +170,12 @@ export default function SpriteRushGame() {
     return () => clearInterval(timer);
   }, [gameState, status, handleTimeout, currentRoundIndex]);
 
-  const finishRound = (outcome: Exclude<RoundStatus, "idle" | "timeout">, delta: number) => {
+  const finishRound = ({ outcome, delta }: RoundResult) => {
     applyScore(delta);
     setStatus(outcome);
     recordRoundPlayed();
     setTimeout(() => advanceRound(), modeConfig.revealDelay);
   };
-
-  const speedPoints = () => Math.max(5, Math.round(timeLeft * SCORE_PER_SECOND));
 
   const handleChoice = (choice: PokemonSprite) => {
     if (!currentRound || status !== "idle") return;
@@ -328,24 +188,12 @@ export default function SpriteRushGame() {
       });
       return;
     }
-    if (choice.id === currentRound.answers[0].id) {
-      finishRound("correct", speedPoints());
-    } else {
-      finishRound("wrong", -PENALTY_WRONG);
-    }
+    finishRound(scorePicks(currentRound.answers, [choice.id], timeLeft));
   };
 
   const handleSubmitPicks = () => {
     if (!currentRound || status !== "idle" || selectedIds.length !== modeConfig.answerCount) return;
-    const hits = currentRound.answers.filter((answer) => selectedIds.includes(answer.id)).length;
-    if (hits === currentRound.answers.length) {
-      finishRound("correct", speedPoints());
-    } else if (hits > 0) {
-      // Partial credit scales with how many of the stacked Pokémon were named.
-      finishRound("partial", Math.round((speedPoints() * hits) / currentRound.answers.length));
-    } else {
-      finishRound("wrong", -PENALTY_WRONG);
-    }
+    finishRound(scorePicks(currentRound.answers, selectedIds, timeLeft));
   };
 
   const selectQuestionTime = (value: number) => {

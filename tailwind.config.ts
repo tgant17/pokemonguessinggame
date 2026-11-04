@@ -9,8 +9,21 @@ export default {
   theme: {
     extend: {
       colors: {
-        background: "var(--background)",
-        foreground: "var(--foreground)",
+        paper: "var(--paper)",
+        ink: {
+          DEFAULT: "var(--ink)",
+          soft: "var(--ink-soft)",
+          faint: "var(--ink-faint)",
+        },
+        rule: "var(--rule)",
+        chrome: {
+          DEFAULT: "var(--chrome)",
+          soft: "var(--chrome-soft)",
+        },
+      },
+      fontFamily: {
+        pixel: ["var(--font-pixel)", "ui-monospace", "monospace"],
+        hand: ["var(--font-hand)", "cursive"],
       },
     },
   },

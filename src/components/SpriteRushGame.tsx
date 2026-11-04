@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SectionLabel, choiceButtonClass } from "@/components/controls";
+import { JoinRoomForm } from "@/components/JoinRoomForm";
 import {
   NameTag,
   SketchFrame,
@@ -25,7 +27,7 @@ import {
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
-import { MAX_NAME_LENGTH, makeRoomCode, normalizeRoomCode, isRoomCode } from "@/lib/protocol";
+import { clampName, cleanName, makeRoomCode, normalizeRoomCode, isRoomCode, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 
 
@@ -95,10 +97,6 @@ function OutcomeMark({ outcome, hits, total, draw = false, className = "h-6 w-6"
       {hits}/{total}
     </span>
   );
-}
-
-function SectionLabel({ children }: { children: ReactNode }) {
-  return <p className="text-xs uppercase tracking-[0.25em] text-ink-soft">{children}</p>;
 }
 
 // A one-line system message in the chat log, e.g. "Normal · 10 rounds".
@@ -275,7 +273,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     if (!feed) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     feed.scrollTo({ top: feed.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
-  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing]);
+  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, room?.players.length]);
 
   const canAnswer = view?.phase === "playing" && status === "idle" && !view.locked && spritesReady;
 
@@ -534,6 +532,21 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
+  // Each player in a room announces their partner in the chat log before the first game.
+  const renderPartnerRow = (player: PlayerInfo) =>
+    player.partner && (
+      <div key={`partner-${player.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
+        <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
+        <NameTag label={player.name} />
+        <span className="relative h-9 w-9 shrink-0">
+          <Image src={player.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
+        </span>
+        <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
+          I choose you, {formatName(player.partner.name)}!
+        </p>
+      </div>
+    );
+
   const renderFeed = () => {
     const pastRounds = history.filter((record) => !(gameState === "playing" && record.round === currentRoundIndex));
     return (
@@ -545,7 +558,13 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         )}
         {isSetup && history.length === 0 && (
           <>
-            <Notice>{room && !room.isHost ? "You're in! The host will start soon" : "Welcome! Set up a game below"}</Notice>
+            <Notice>
+              {room && !room.joined
+                ? "Make a name tag below to join"
+                : room && !room.isHost
+                  ? "You're in! The host will start soon"
+                  : "Welcome! Set up a game below"}
+            </Notice>
             <Message tag={HOST_TAG} className="flex items-start gap-3">
               <SketchIcon name="pokeball" className="mt-1 h-14 w-14 sm:h-16 sm:w-16" strokeWidth={2} draw />
               <div className="min-w-0">
@@ -554,11 +573,12 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 </p>
                 <p className="mt-1 font-hand text-lg leading-snug text-ink-soft sm:text-xl">
                   {room
-                    ? `Share the invite link below. ${room.isHost ? "You're" : `${hostName} is`} hosting and starts the game once everyone's in.`
+                    ? `Share the invite link below. ${room.isHost ? "You're" : room.hostId ? `${hostName} is` : "The first player to join is"} hosting and starts the game once everyone's in.`
                     : instructions}
                 </p>
               </div>
             </Message>
+            {room?.players.map(renderPartnerRow)}
           </>
         )}
         {history.length > 0 && (
@@ -695,11 +715,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  const choiceButtonClass = (selected: boolean) =>
-    `relative isolate rounded-[14px] transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-not-allowed ${
-      selected ? "text-paper" : "text-ink"
-    }`;
-
   const renderGameSetup = () => (
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
@@ -832,7 +847,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   // --- Multiplayer rooms ---
 
-  const [nameDraft, setNameDraft] = useState("");
+  // Null until the player types, so the name saved from a previous room fills the field.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const joinName = nameDraft ?? clampName(roomGame.savedName);
+  const joining = !!room && !room.joined;
   const [codeDraft, setCodeDraft] = useState("");
   const [copied, setCopied] = useState(false);
   // Built after mount: the server doesn't know the site's address, and both renders must match.
@@ -871,56 +889,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const textInputClass =
     "relative w-full min-w-0 rounded-[12px] bg-transparent px-3.5 py-3 text-lg text-ink placeholder:text-ink-faint focus:outline-none";
 
-  const renderPrimaryButton = (label: ReactNode, onClick: () => void, disabled = false) => (
-    <button
-      type="submit"
-      onClick={onClick}
-      disabled={disabled}
-      className={`relative isolate flex w-full items-center justify-center gap-2 rounded-[16px] py-3.5 text-xl transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-not-allowed ${
-        disabled ? "text-ink-soft" : "text-paper"
-      }`}
-    >
-      <SketchFrame
-        radius={16}
-        wobble={1.1}
-        strokeWidth={2.8}
-        fill={disabled ? "paper" : "ink"}
-        stroke={disabled ? "var(--ink-faint)" : "var(--ink)"}
-        dotted={disabled}
-      />
-      {label}
-    </button>
+  const renderJoinForm = () => (
+    <JoinRoomForm
+      roomCode={roomCode ?? ""}
+      pokemonNames={pokemonNames}
+      name={joinName}
+      onNameChange={setNameDraft}
+      connected={roomGame.connected}
+      onJoin={roomGame.join}
+    />
   );
-
-  const renderJoinForm = () => {
-    const name = nameDraft || roomGame.savedName;
-    const cleaned = name.trim();
-    return (
-      <form className="flex flex-col gap-3" onSubmit={(event) => event.preventDefault()}>
-        <label className="flex flex-col gap-2">
-          <SectionLabel>Your name</SectionLabel>
-          <span className="relative isolate block">
-            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
-            <input
-              value={name}
-              onChange={(event) => setNameDraft(event.target.value)}
-              maxLength={MAX_NAME_LENGTH}
-              autoComplete="nickname"
-              placeholder="Ash"
-              className={textInputClass}
-            />
-          </span>
-        </label>
-        {renderPrimaryButton(
-          <>
-            Join room {roomCode} <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
-          </>,
-          () => cleaned && roomGame.join(cleaned),
-          !cleaned || !roomGame.connected,
-        )}
-      </form>
-    );
-  };
 
   const renderWaitingForHost = () => (
     <div className="flex flex-col items-center gap-2 py-6 text-center">
@@ -984,6 +962,11 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               >
                 <SketchFrame radius={12} wobble={0.8} strokeWidth={isYou ? 2.6 : 2} fill="paper" traced={isYou} />
                 <span className="w-5 text-center text-sm tabular-nums text-ink-soft">{index + 1}</span>
+                <span className={`relative h-8 w-8 shrink-0 ${player.connected ? "" : "opacity-40"}`}>
+                  {player.partner && (
+                    <Image src={player.partner.spriteUrl} alt="" fill sizes="32px" className="object-contain" />
+                  )}
+                </span>
                 <span className="min-w-0 flex-1 truncate text-base">
                   {player.name}
                   {isYou && <span className="text-ink-soft"> (you)</span>}
@@ -1068,7 +1051,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   const bottomPrompt = () => {
     if (gameState === "loading") return "Loading…";
-    if (room && !room.joined) return "Pick a name";
+    if (joining) return "Make your name tag";
     if (room && isSetup && !room.isHost) return `Room ${room.code}`;
     if (isSetup) return "Set up a game";
     if (roundRevealed) return "Next round…";
@@ -1109,7 +1092,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           {/* Bottom screen: where you answer. */}
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <NameTag label={currentTag.label} color={currentTag.color} size="md" />
+              <NameTag label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label} color={currentTag.color} size="md" />
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>
             </div>
             {gameState === "loading" ? (

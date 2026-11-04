@@ -2,6 +2,7 @@
 // party/room.ts wires this to WebSockets; everything here is plain logic so it can be unit-tested.
 
 import { closeRound, createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
+import type { PokemonSprite } from "./game.ts";
 import { MAX_PLAYERS, type ClientMessage, type PlayerInfo, type RoomSnapshot } from "./protocol.ts";
 
 // How long a new round waits for everyone's sprites to load before starting the clock anyway.
@@ -10,7 +11,7 @@ export const READY_TIMEOUT_MS = 4000;
 // network drop doesn't end the round (or start the clock) without them.
 export const REJOIN_GRACE_MS = 3000;
 
-type Player = { id: string; name: string };
+type Player = { id: string; name: string; partner: PokemonSprite | null };
 
 export class RoomState {
   readonly code: string;
@@ -73,7 +74,7 @@ export class RoomState {
           if (!gone) return `This room is full (${MAX_PLAYERS} players).`;
           this.players.delete(gone);
         }
-        this.players.set(id, { id, name: message.name });
+        this.players.set(id, { id, name: message.name, partner: message.partner });
         if (!this.hostId) this.hostId = id;
         break;
       }
@@ -157,6 +158,7 @@ export class RoomState {
     const players: PlayerInfo[] = [...this.players.values()].map((player) => ({
       id: player.id,
       name: player.name,
+      partner: player.partner,
       connected: this.isConnected(player.id),
       score: game?.scores[player.id] ?? 0,
       answered: !!game?.answers[player.id],

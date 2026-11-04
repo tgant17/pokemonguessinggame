@@ -2,7 +2,17 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { GameSettings } from "./engine.ts";
 import { MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
-import { isRoomCode, makeRoomCode, normalizeRoomCode, parseClientMessage, type ClientMessage } from "./protocol.ts";
+import {
+  MAX_NAME_LENGTH,
+  clampName,
+  cleanName,
+  isRoomCode,
+  makeRoomCode,
+  nameLength,
+  normalizeRoomCode,
+  parseClientMessage,
+  type ClientMessage,
+} from "./protocol.ts";
 import { READY_TIMEOUT_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
 
 const mon = (id: number): PokemonSprite => ({
@@ -21,9 +31,9 @@ const T0 = 5_000_000;
 // A room with Ash (host) and Misty connected and joined.
 const twoPlayerRoom = () => {
   const room = new RoomState("PKMN");
-  for (const [id, name] of [["ash", "Ash"], ["misty", "Misty"]]) {
+  for (const [id, name, partner] of [["ash", "Ash", mon(25)], ["misty", "Misty", mon(120)]] as const) {
     room.connect(id);
-    room.handle(id, { type: "join", name }, T0);
+    room.handle(id, { type: "join", name, partner }, T0);
   }
   return room;
 };
@@ -39,6 +49,7 @@ test("the first player to join hosts, and only the host can start", () => {
   const snapshot = room.snapshotFor("misty", T0);
   assert.equal(snapshot.hostId, "ash");
   assert.deepEqual(snapshot.players.map((p) => p.name), ["Ash", "Misty"]);
+  assert.deepEqual(snapshot.players.map((p) => p.partner?.id), [25, 120], "everyone sees each player's partner");
   assert.equal(start(room, "misty"), "Only the host can start a game.");
   assert.equal(start(room), null);
   assert.equal(room.snapshotFor("misty", T0).game?.phase, "waiting");
@@ -124,12 +135,12 @@ test("a full room makes space by dropping someone who has left", () => {
   const room = new RoomState("PKMN");
   for (let i = 0; i < 12; i += 1) {
     room.connect(`p${i}`);
-    room.handle(`p${i}`, { type: "join", name: `P${i}` }, T0);
+    room.handle(`p${i}`, { type: "join", name: `P${i}`, partner: null }, T0);
   }
   room.connect("late");
-  assert.equal(room.handle("late", { type: "join", name: "Late" }, T0), "This room is full (12 players).");
+  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null }, T0), "This room is full (12 players).");
   room.disconnect("p5", T0);
-  assert.equal(room.handle("late", { type: "join", name: "Late" }, T0), null);
+  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null }, T0), null);
   const names = room.snapshotFor("late", T0).players.map((p) => p.name);
   assert.equal(names.length, 12);
   assert.ok(!names.includes("P5") && names.includes("Late"));
@@ -208,7 +219,7 @@ test("someone joining mid-game watches until the next game", () => {
   const room = twoPlayerRoom();
   start(room);
   room.connect("brock");
-  room.handle("brock", { type: "join", name: "Brock" }, T0);
+  room.handle("brock", { type: "join", name: "Brock", partner: null }, T0);
   const watching = room.snapshotFor("brock", T0);
   assert.equal(watching.game?.inGame, false);
   ready(room, "ash", T0);
@@ -234,10 +245,20 @@ test("room codes", () => {
 
 test("client messages are validated", () => {
   const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
-  assert.deepEqual(parse({ type: "join", name: "  Ash \n Ketchum  " }), { type: "join", name: "Ash Ketchum" });
+  assert.deepEqual(parse({ type: "join", name: "  Misty \n Wa  ", partner: mon(120) }), {
+    type: "join",
+    name: "Misty Wa",
+    partner: mon(120),
+  });
   assert.equal(parse({ type: "join", name: "   " }), null);
-  assert.equal(parse({ type: "join", name: "x".repeat(50) })?.type, "join");
-  assert.equal((parse({ type: "join", name: "x".repeat(50) }) as { name: string }).name.length, 20);
+  assert.equal((parse({ type: "join", name: "x".repeat(50) }) as { name: string }).name.length, 10, "names are cut to 10");
+  assert.deepEqual(parse({ type: "join", name: "Ash" }), { type: "join", name: "Ash", partner: null }, "partner is optional");
+  assert.equal(
+    parse({ type: "join", name: "Ash", partner: { ...mon(25), spriteUrl: "https://evil.example/25.png" } }),
+    null,
+    "a partner must be a valid sprite from a known host",
+  );
+  assert.equal(parse({ type: "join", name: "Ash", partner: "pikachu" }), null);
 
   const good: ClientMessage = { type: "start", settings, rounds: makeRounds(5) };
   assert.deepEqual(parse(good), good);
@@ -262,4 +283,22 @@ test("client messages are validated", () => {
   assert.equal(parse({ type: "makeHost", playerId: 7 }), null);
   assert.equal(parse({ type: "nope" }), null);
   assert.equal(parseClientMessage("{not json"), null);
+});
+
+test("names are at most 10 characters, counted the way people count them", () => {
+  assert.equal(MAX_NAME_LENGTH, 10);
+  assert.equal(clampName("Ash Ketchum of Pallet"), "Ash Ketchu");
+  assert.equal(clampName("Mi\tsty\n"), "Misty", "tabs and newlines are dropped while typing");
+  // Emoji are one character each and are never split into half a surrogate pair.
+  assert.equal(nameLength("⚡⚡⚡"), 3);
+  const clamped = clampName("Pika⚡⚡⚡⚡⚡⚡⚡");
+  assert.equal(clamped, "Pika⚡⚡⚡⚡⚡⚡");
+  assert.equal(nameLength(clamped), 10);
+  assert.ok(!/[\uD800-\uDBFF]$/.test(clampName("abcdefghi🔥🔥")));
+
+  assert.equal(cleanName("  Brock  "), "Brock");
+  assert.equal(cleanName("Team   Rocket"), "Team Rocke");
+  assert.equal(cleanName("Ash Ketch m"), "Ash Ketch", "a space left at the cut is trimmed");
+  assert.equal(cleanName("   "), null);
+  assert.equal(cleanName(42), null);
 });

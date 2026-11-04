@@ -18,15 +18,12 @@ import {
   buildRounds,
   formatName,
   joinNames,
-  scorePicks,
-  timeoutResult,
   type GameMode,
   type PokemonSprite,
-  type RoundData,
   type RoundOutcome,
-  type RoundResult,
   type RoundStatus,
 } from "@/lib/game";
+import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 
 
 
@@ -45,6 +42,7 @@ type Tag = { label: string; color?: string };
 type RoundRecord = {
   round: number;
   answers: PokemonSprite[];
+  options: PokemonSprite[];
   pickedIds: number[];
   outcome: RoundOutcome;
   delta: number;
@@ -142,18 +140,12 @@ function Message({ tag, children, className = "" }: { tag: Tag; children: ReactN
 
 export default function SpriteRushGame() {
   const [pokemonNames, setPokemonNames] = useState<string[]>([]);
-  const [rounds, setRounds] = useState<RoundData[]>([]);
-  const [currentRoundIndex, setCurrentRoundIndex] = useState(0);
-  const [totalRounds, setTotalRounds] = useState(5);
-  const [mode, setMode] = useState<GameMode>("normal");
-  const modeConfig = MODE_CONFIG[mode];
-  const isMulti = modeConfig.answerCount > 1;
-  const [questionTime, setQuestionTime] = useState(MODE_CONFIG.normal.defaultTime);
-  const [timeLeft, setTimeLeft] = useState(MODE_CONFIG.normal.defaultTime);
-  const [score, setScore] = useState(0);
-  const [status, setStatus] = useState<RoundStatus>("idle");
-  const [selectedIds, setSelectedIds] = useState<number[]>([]);
-  const [gameState, setGameState] = useState<"loading" | "ready" | "playing" | "finished">("loading");
+  const [namesReady, setNamesReady] = useState(false);
+  // What the setup panel has selected; a game in progress uses the settings it started with.
+  const [setupRounds, setTotalRounds] = useState(5);
+  const [setupMode, setMode] = useState<GameMode>("normal");
+  const [setupTime, setQuestionTime] = useState(MODE_CONFIG.normal.defaultTime);
+  const [selection, setSelection] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [teams, setTeams] = useState<TeamState[]>(TEAM_PRESETS);
@@ -162,7 +154,60 @@ export default function SpriteRushGame() {
   const [history, setHistory] = useState<RoundRecord[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const currentRound = rounds[currentRoundIndex];
+  const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
+  const currentTag = useMemo<Tag>(
+    () => (showTeams ? { label: activeTeamData.name, color: activeTeamData.color } : SOLO_TAG),
+    [showTeams, activeTeamData.name, activeTeamData.color],
+  );
+
+  // Each finished round goes to the active team's totals and the chat log.
+  const handleRoundResult = useCallback(
+    ({ roundIndex, round, answer }: RoundResultEvent) => {
+      setTeams((prevTeams) =>
+        prevTeams.map((team) =>
+          team.name === activeTeam ? { ...team, score: team.score + answer.delta, rounds: team.rounds + 1 } : team,
+        ),
+      );
+      setHistory((prev) => [
+        ...prev,
+        {
+          round: roundIndex,
+          answers: round.answers,
+          options: round.options,
+          pickedIds: answer.pickedIds,
+          outcome: answer.outcome,
+          delta: answer.delta,
+          tag: currentTag,
+        },
+      ]);
+    },
+    [activeTeam, currentTag],
+  );
+
+  const localGame = useLocalGame(handleRoundResult);
+  const game: GameController = localGame;
+  const { view } = game;
+
+  const gameState: "loading" | "ready" | "playing" | "finished" = !namesReady
+    ? "loading"
+    : !view
+      ? "ready"
+      : view.phase === "finished"
+        ? "finished"
+        : "playing";
+  const playing = gameState === "playing" && view ? view : null;
+  const mode = playing?.settings.mode ?? setupMode;
+  const totalRounds = playing?.settings.totalRounds ?? setupRounds;
+  const questionTime = playing?.settings.questionTime ?? setupTime;
+  const modeConfig = MODE_CONFIG[mode];
+  const isMulti = modeConfig.answerCount > 1;
+  const timeLeft = playing?.timeLeft ?? questionTime;
+  const score = view?.myScore ?? 0;
+  const status: RoundStatus = view?.myAnswer?.outcome ?? "idle";
+  const currentRound = view?.round;
+  const currentRoundIndex = view?.roundIndex ?? 0;
+  const selectedIds = selection.round === currentRoundIndex ? selection.ids : [];
+
   // Stacked silhouettes stay hidden until every sprite in the round has loaded, so none pops in before the others.
   const [loadedSprites, setLoadedSprites] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
   const spritesReady =
@@ -178,11 +223,12 @@ export default function SpriteRushGame() {
     },
     [],
   );
-  const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
-  const currentTag = useMemo<Tag>(
-    () => (showTeams ? { label: activeTeamData.name, color: activeTeamData.color } : SOLO_TAG),
-    [showTeams, activeTeamData.name, activeTeamData.color],
-  );
+
+  // The round's clock only starts once its sprites are on screen.
+  const { startClock } = game;
+  useEffect(() => {
+    if (view?.phase === "waiting" && spritesReady) startClock();
+  }, [view?.phase, spritesReady, startClock]);
 
   useEffect(() => {
     const loadNames = async () => {
@@ -191,7 +237,7 @@ export default function SpriteRushGame() {
         if (!res.ok) throw new Error("Unable to load cached Pokémon data");
         const data: { names?: string[] } = await res.json();
         setPokemonNames(data.names ?? []);
-        setGameState("ready");
+        setNamesReady(true);
       } catch (error) {
         console.error(error);
         setErrorMessage("Failed to load Pokémon data. Please refresh the page.");
@@ -200,93 +246,23 @@ export default function SpriteRushGame() {
     loadNames();
   }, []);
 
+  const { start: startLocalGame } = localGame;
   const prepareRounds = useCallback(async () => {
     if (!pokemonNames.length) return;
     setIsPreparing(true);
     setErrorMessage(null);
-    const builtRounds = await buildRounds(pokemonNames, mode, totalRounds);
+    const builtRounds = await buildRounds(pokemonNames, setupMode, setupRounds);
     if (!builtRounds) {
       setErrorMessage("Unable to prefetch enough sprites. Please try again.");
       setIsPreparing(false);
       return;
     }
     setLoadedSprites({ round: -1, ids: [] });
-    setRounds(builtRounds);
-    setCurrentRoundIndex(0);
-    setScore(0);
-    setTimeLeft(questionTime);
-    setStatus("idle");
-    setSelectedIds([]);
+    setSelection({ round: -1, ids: [] });
     setHistory([]);
-    setGameState("playing");
+    startLocalGame({ mode: setupMode, totalRounds: setupRounds, questionTime: setupTime }, builtRounds);
     setIsPreparing(false);
-  }, [pokemonNames, mode, totalRounds, questionTime]);
-
-  const advanceRound = useCallback(() => {
-    setCurrentRoundIndex((prev) => {
-      if (prev + 1 >= totalRounds) {
-        setGameState("finished");
-        return prev;
-      }
-      setTimeLeft(questionTime);
-      setStatus("idle");
-      setSelectedIds([]);
-      return prev + 1;
-    });
-  }, [totalRounds, questionTime]);
-
-  const applyScore = useCallback(
-    (delta: number) => {
-      setScore((prev) => prev + delta);
-      setTeams((prevTeams) =>
-        prevTeams.map((team) => (team.name === activeTeam ? { ...team, score: team.score + delta } : team)),
-      );
-    },
-    [activeTeam],
-  );
-
-  const recordRoundPlayed = useCallback(() => {
-    setTeams((prevTeams) =>
-      prevTeams.map((team) =>
-        team.name === activeTeam ? { ...team, rounds: team.rounds + 1 } : team,
-      ),
-    );
-  }, [activeTeam]);
-
-  // Posts the finished round to the chat log.
-  const logRound = useCallback(
-    (outcome: RoundOutcome, delta: number, pickedIds: number[]) => {
-      if (!currentRound) return;
-      setHistory((prev) => [
-        ...prev,
-        { round: currentRoundIndex, answers: currentRound.answers, pickedIds, outcome, delta, tag: currentTag },
-      ]);
-    },
-    [currentRound, currentRoundIndex, currentTag],
-  );
-
-  const handleTimeout = useCallback(() => {
-    if (status !== "idle") return;
-    const { outcome, delta } = timeoutResult();
-    setStatus(outcome);
-    applyScore(delta);
-    recordRoundPlayed();
-    logRound(outcome, delta, []);
-    setTimeout(() => advanceRound(), modeConfig.revealDelay);
-  }, [status, advanceRound, applyScore, recordRoundPlayed, logRound, modeConfig]);
-
-  useEffect(() => {
-    if (gameState !== "playing" || status !== "idle" || !spritesReady) return;
-    const timer = setInterval(() => {
-      setTimeLeft((prev) => Math.max(0, prev - 1));
-    }, 1000);
-    return () => clearInterval(timer);
-  }, [gameState, status, currentRoundIndex, spritesReady]);
-
-  // Time-outs are handled here rather than inside the state updater, so they fire exactly once.
-  useEffect(() => {
-    if (gameState === "playing" && status === "idle" && timeLeft === 0) handleTimeout();
-  }, [gameState, status, timeLeft, handleTimeout]);
+  }, [pokemonNames, setupMode, setupRounds, setupTime, startLocalGame]);
 
   // Keep the newest chat message in view, like a chat log.
   useEffect(() => {
@@ -296,37 +272,34 @@ export default function SpriteRushGame() {
     feed.scrollTo({ top: feed.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
   }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing]);
 
-  const finishRound = ({ outcome, delta }: RoundResult, pickedIds: number[]) => {
-    applyScore(delta);
-    setStatus(outcome);
-    recordRoundPlayed();
-    logRound(outcome, delta, pickedIds);
-    setTimeout(() => advanceRound(), modeConfig.revealDelay);
-  };
+  const canAnswer = view?.phase === "playing" && status === "idle" && spritesReady;
 
   const handleChoice = (choice: PokemonSprite) => {
-    if (!currentRound || status !== "idle" || !spritesReady) return;
+    if (!currentRound || !canAnswer) return;
     if (isMulti) {
       // Multi-pick modes: tapping toggles a pick; one tap past the limit replaces the oldest pick.
-      setSelectedIds((prev) => {
-        if (prev.includes(choice.id)) return prev.filter((id) => id !== choice.id);
-        const next = [...prev, choice.id];
-        return next.length > modeConfig.answerCount ? next.slice(next.length - modeConfig.answerCount) : next;
+      setSelection((prev) => {
+        const ids = prev.round === currentRoundIndex ? prev.ids : [];
+        if (ids.includes(choice.id)) return { round: currentRoundIndex, ids: ids.filter((id) => id !== choice.id) };
+        const next = [...ids, choice.id];
+        return {
+          round: currentRoundIndex,
+          ids: next.length > modeConfig.answerCount ? next.slice(next.length - modeConfig.answerCount) : next,
+        };
       });
       return;
     }
-    setSelectedIds([choice.id]);
-    finishRound(scorePicks(currentRound.answers, [choice.id], timeLeft, questionTime), [choice.id]);
+    setSelection({ round: currentRoundIndex, ids: [choice.id] });
+    game.submit([choice.id]);
   };
 
   const handleSubmitPicks = () => {
-    if (!currentRound || status !== "idle" || selectedIds.length !== modeConfig.answerCount) return;
-    finishRound(scorePicks(currentRound.answers, selectedIds, timeLeft, questionTime), selectedIds);
+    if (!currentRound || !canAnswer || selectedIds.length !== modeConfig.answerCount) return;
+    game.submit(selectedIds);
   };
 
   const selectQuestionTime = (value: number) => {
     setQuestionTime(value);
-    setTimeLeft(value);
   };
 
   const selectMode = (value: GameMode) => {
@@ -528,7 +501,7 @@ export default function SpriteRushGame() {
   const renderHistoryRow = (record: RoundRecord) => {
     const total = record.answers.length;
     const hits = record.answers.filter((answer) => record.pickedIds.includes(answer.id)).length;
-    const options = rounds[record.round]?.options;
+    const options = record.options;
     return (
       <div key={`record-${record.round}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
         <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />

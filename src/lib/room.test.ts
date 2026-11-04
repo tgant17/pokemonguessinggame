@@ -3,7 +3,7 @@ import { test } from "node:test";
 import type { GameSettings } from "./engine.ts";
 import { MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
 import { isRoomCode, makeRoomCode, normalizeRoomCode, parseClientMessage, type ClientMessage } from "./protocol.ts";
-import { READY_TIMEOUT_MS, RoomState } from "./room.ts";
+import { READY_TIMEOUT_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
 
 const mon = (id: number): PokemonSprite => ({
   id,
@@ -75,19 +75,49 @@ test("a round ends early once everyone still connected has answered", () => {
   answer(room, "ash", [1], T0 + 500);
   assert.equal(room.snapshotFor("ash", T0 + 500).game?.phase, "playing");
   room.disconnect("misty", T0 + 1000);
-  const snap = room.snapshotFor("ash", T0 + 1000);
+  assert.equal(room.snapshotFor("ash", T0 + 1000).game?.phase, "playing", "Misty might just be reloading");
+  assert.equal(room.nextWakeAt(), T0 + 1000 + REJOIN_GRACE_MS);
+  room.advance(T0 + 1000 + REJOIN_GRACE_MS);
+  const snap = room.snapshotFor("ash", T0 + 4000);
   assert.equal(snap.game?.phase, "reveal", "no waiting out the clock for Misty");
   assert.equal(snap.players.find((p) => p.id === "misty")?.lastResult?.outcome, "timeout");
-  assert.equal(snap.game?.frozenSecondsLeft, 7);
+  assert.equal(snap.game?.frozenSecondsLeft, 4);
 
   // The same applies if Misty had already left before answering.
   const early = twoPlayerRoom();
   start(early);
   early.disconnect("misty", T0);
-  ready(early, "ash", T0);
-  assert.equal(early.snapshotFor("ash", T0).game?.phase, "playing");
-  answer(early, "ash", [1], T0 + 200);
-  assert.equal(early.snapshotFor("ash", T0 + 200).game?.phase, "reveal");
+  ready(early, "ash", T0 + REJOIN_GRACE_MS);
+  assert.equal(early.snapshotFor("ash", T0 + REJOIN_GRACE_MS).game?.phase, "playing");
+  answer(early, "ash", [1], T0 + REJOIN_GRACE_MS + 200);
+  assert.equal(early.snapshotFor("ash", T0 + REJOIN_GRACE_MS + 200).game?.phase, "reveal");
+});
+
+test("refreshing the page doesn't end the round for you", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [1], T0 + 500);
+  // Misty reloads: her connection drops and comes back a moment later.
+  room.disconnect("misty", T0 + 1000);
+  assert.equal(room.snapshotFor("ash", T0 + 1000).game?.phase, "playing");
+  room.connect("misty");
+  room.advance(T0 + 5000);
+  assert.equal(room.snapshotFor("misty", T0 + 5000).game?.phase, "playing", "still Misty's turn to answer");
+  answer(room, "misty", [1], T0 + 5200);
+  assert.equal(room.snapshotFor("misty", T0 + 5200).game?.myAnswer?.outcome, "correct");
+});
+
+test("a refresh while a round is loading doesn't start the clock without you", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0 + 100);
+  room.disconnect("misty", T0 + 200);
+  assert.equal(room.snapshotFor("ash", T0 + 200).game?.phase, "waiting");
+  room.connect("misty");
+  ready(room, "misty", T0 + 900);
+  assert.equal(room.snapshotFor("ash", T0 + 900).game?.phase, "playing");
 });
 
 test("a full room makes space by dropping someone who has left", () => {

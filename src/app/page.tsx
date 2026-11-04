@@ -246,6 +246,21 @@ export default function SpriteRushGame() {
   const feedRef = useRef<HTMLDivElement>(null);
 
   const currentRound = rounds[currentRoundIndex];
+  // Stacked silhouettes stay hidden until every sprite in the round has loaded, so none pops in before the others.
+  const [loadedSprites, setLoadedSprites] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
+  const spritesReady =
+    !!currentRound &&
+    loadedSprites.round === currentRoundIndex &&
+    currentRound.answers.every((answer) => loadedSprites.ids.includes(answer.id));
+  const markSpriteLoaded = useCallback(
+    (round: number, id: number) => {
+      setLoadedSprites((prev) => {
+        const ids = prev.round === round ? prev.ids : [];
+        return ids.includes(id) ? prev : { round, ids: [...ids, id] };
+      });
+    },
+    [],
+  );
   const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
   const currentTag = useMemo<Tag>(
     () => (showTeams ? { label: activeTeamData.name, color: activeTeamData.color } : SOLO_TAG),
@@ -329,6 +344,7 @@ export default function SpriteRushGame() {
       setIsPreparing(false);
       return;
     }
+    setLoadedSprites({ round: -1, ids: [] });
     setRounds(builtRounds);
     setCurrentRoundIndex(0);
     setScore(0);
@@ -393,12 +409,12 @@ export default function SpriteRushGame() {
   }, [status, advanceRound, applyScore, recordRoundPlayed, logRound, modeConfig]);
 
   useEffect(() => {
-    if (gameState !== "playing" || status !== "idle") return;
+    if (gameState !== "playing" || status !== "idle" || !spritesReady) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(timer);
-  }, [gameState, status, currentRoundIndex]);
+  }, [gameState, status, currentRoundIndex, spritesReady]);
 
   // Time-outs are handled here rather than inside the state updater, so they fire exactly once.
   useEffect(() => {
@@ -424,7 +440,7 @@ export default function SpriteRushGame() {
   const speedPoints = () => Math.max(5, Math.round(timeLeft * SCORE_PER_SECOND));
 
   const handleChoice = (choice: PokemonSprite) => {
-    if (!currentRound || status !== "idle") return;
+    if (!currentRound || status !== "idle" || !spritesReady) return;
     if (isMulti) {
       // Multi-pick modes: tapping toggles a pick; one tap past the limit replaces the oldest pick.
       setSelectedIds((prev) => {
@@ -576,15 +592,25 @@ export default function SpriteRushGame() {
     const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
     return (
       <div className="relative h-36 w-full sm:h-44">
+        {!spritesReady && (
+          <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-soft">
+            Loading sprite{stackSize > 1 ? "s" : ""}...
+          </div>
+        )}
         {currentRound.answers.map((answer, index) => {
           // Stacked silhouettes sit on top of each other, then slide apart side by side on reveal.
           const offset = layout ? `${(index - (stackSize - 1) / 2) * layout.step}%` : "0%";
           const scale = layout ? layout.scale : 1;
           return (
             <div
-              key={answer.id}
+              // Keyed by round too, so a Pokémon repeated in back-to-back rounds remounts and reports its load.
+              key={`${currentRoundIndex}-${answer.id}`}
               className="absolute inset-0 transition-transform duration-500 ease-out"
-              style={{ transform: `translateX(${offset}) scale(${scale})` }}
+              style={{
+                transform: `translateX(${offset}) scale(${scale})`,
+                // Stacked silhouettes stay hidden until every sprite has loaded, so none pops in before the others.
+                visibility: spritesReady ? "visible" : "hidden",
+              }}
             >
               <Image
                 src={answer.spriteUrl}
@@ -595,6 +621,9 @@ export default function SpriteRushGame() {
                 // and give away their outlines.
                 className={`object-contain transition-[filter] duration-300 ${revealed ? "" : "brightness-0"}`}
                 priority
+                // A failed image still counts as settled so a broken sprite can't stall the round forever.
+                onLoad={() => markSpriteLoaded(currentRoundIndex, answer.id)}
+                onError={() => markSpriteLoaded(currentRoundIndex, answer.id)}
               />
             </div>
           );

@@ -2,8 +2,6 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   MODE_CONFIG,
-  PENALTY_TIMEOUT,
-  PENALTY_WRONG,
   buildRounds,
   formatName,
   joinNames,
@@ -15,26 +13,30 @@ import {
 
 const mon = (id: number): PokemonSprite => ({ id, name: `mon-${id}`, spriteUrl: `https://example.test/${id}.png` });
 
-test("speedPoints rewards time left with a floor of 5", () => {
-  assert.equal(speedPoints(8), 96);
-  assert.equal(speedPoints(0), 5);
+test("speedPoints gives 4/3/2/1 by which quarter of the clock is left", () => {
+  assert.equal(speedPoints(8, 8), 4);
+  assert.equal(speedPoints(7, 8), 4);
+  assert.equal(speedPoints(6, 8), 3);
+  assert.equal(speedPoints(4, 8), 2);
+  assert.equal(speedPoints(2, 8), 1);
+  assert.equal(speedPoints(0, 8), 1);
 });
 
-test("single pick: right answer scores speed points, wrong one is penalised", () => {
-  assert.deepEqual(scorePicks([mon(1)], [1], 6), { outcome: "correct", delta: 72 });
-  assert.deepEqual(scorePicks([mon(1)], [2], 6), { outcome: "wrong", delta: -PENALTY_WRONG });
+test("single pick: right answer scores speed points, wrong one scores nothing", () => {
+  assert.deepEqual(scorePicks([mon(1)], [1], 6, 8), { outcome: "correct", delta: 3 });
+  assert.deepEqual(scorePicks([mon(1)], [2], 6, 8), { outcome: "wrong", delta: 0 });
 });
 
 test("stacked picks earn partial credit per Pokémon named", () => {
   const answers = [mon(1), mon(2), mon(3)];
-  assert.deepEqual(scorePicks(answers, [1, 2, 3], 10), { outcome: "correct", delta: 120 });
-  assert.deepEqual(scorePicks(answers, [1, 2, 9], 10), { outcome: "partial", delta: 80 });
-  assert.deepEqual(scorePicks(answers, [1, 8, 9], 10), { outcome: "partial", delta: 40 });
-  assert.deepEqual(scorePicks(answers, [7, 8, 9], 10), { outcome: "wrong", delta: -PENALTY_WRONG });
+  assert.deepEqual(scorePicks(answers, [1, 2, 3], 15, 15), { outcome: "correct", delta: 4 });
+  assert.deepEqual(scorePicks(answers, [1, 2, 9], 15, 15), { outcome: "partial", delta: 3 });
+  assert.deepEqual(scorePicks(answers, [1, 8, 9], 15, 15), { outcome: "partial", delta: 1 });
+  assert.deepEqual(scorePicks(answers, [7, 8, 9], 15, 15), { outcome: "wrong", delta: 0 });
 });
 
-test("timeout applies the timeout penalty", () => {
-  assert.deepEqual(timeoutResult(), { outcome: "timeout", delta: -PENALTY_TIMEOUT });
+test("timeout scores nothing and takes nothing away", () => {
+  assert.deepEqual(timeoutResult(), { outcome: "timeout", delta: 0 });
 });
 
 test("buildRounds makes distinct options with answers drawn from them", async () => {

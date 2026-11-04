@@ -316,12 +316,12 @@ export default function SpriteRushGame() {
       return;
     }
     setSelectedIds([choice.id]);
-    finishRound(scorePicks(currentRound.answers, [choice.id], timeLeft), [choice.id]);
+    finishRound(scorePicks(currentRound.answers, [choice.id], timeLeft, questionTime), [choice.id]);
   };
 
   const handleSubmitPicks = () => {
     if (!currentRound || status !== "idle" || selectedIds.length !== modeConfig.answerCount) return;
-    finishRound(scorePicks(currentRound.answers, selectedIds, timeLeft), selectedIds);
+    finishRound(scorePicks(currentRound.answers, selectedIds, timeLeft, questionTime), selectedIds);
   };
 
   const selectQuestionTime = (value: number) => {

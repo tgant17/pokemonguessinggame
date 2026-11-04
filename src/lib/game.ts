@@ -72,9 +72,10 @@ export const MODE_CONFIG: Record<
 
 export const ROUND_OPTIONS = [5, 10, 25];
 
-export const SCORE_PER_SECOND = 12;
-export const PENALTY_WRONG = 15;
-export const PENALTY_TIMEOUT = 12;
+// Correct answers score by which quarter of the clock they land in:
+// first quarter (fastest) = 4, then 3, 2, and 1 in the final quarter.
+// Wrong answers and time-outs score nothing but never take points away.
+export const SPEED_TIERS = 4;
 
 export const shuffle = <T,>(array: T[]) => {
   const copy = [...array];
@@ -173,15 +174,21 @@ export const buildRounds = async (
   return rounds;
 };
 
-export const speedPoints = (timeLeft: number) => Math.max(5, Math.round(timeLeft * SCORE_PER_SECOND));
+export const speedPoints = (timeLeft: number, questionTime: number) =>
+  Math.max(1, Math.ceil((timeLeft / questionTime) * SPEED_TIERS));
 
 // Scores a completed set of picks. Normal mode passes one pick; stacked modes pass answerCount picks.
-export const scorePicks = (answers: PokemonSprite[], pickedIds: number[], timeLeft: number): RoundResult => {
+export const scorePicks = (
+  answers: PokemonSprite[],
+  pickedIds: number[],
+  timeLeft: number,
+  questionTime: number,
+): RoundResult => {
   const hits = answers.filter((answer) => pickedIds.includes(answer.id)).length;
-  if (hits === answers.length) return { outcome: "correct", delta: speedPoints(timeLeft) };
+  if (hits === answers.length) return { outcome: "correct", delta: speedPoints(timeLeft, questionTime) };
   // Partial credit scales with how many of the stacked Pokémon were named.
-  if (hits > 0) return { outcome: "partial", delta: Math.round((speedPoints(timeLeft) * hits) / answers.length) };
-  return { outcome: "wrong", delta: -PENALTY_WRONG };
+  if (hits > 0) return { outcome: "partial", delta: Math.round((speedPoints(timeLeft, questionTime) * hits) / answers.length) };
+  return { outcome: "wrong", delta: 0 };
 };
 
-export const timeoutResult = (): RoundResult => ({ outcome: "timeout", delta: -PENALTY_TIMEOUT });
+export const timeoutResult = (): RoundResult => ({ outcome: "timeout", delta: 0 });

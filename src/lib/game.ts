@@ -192,3 +192,12 @@ export const scorePicks = (
 };
 
 export const timeoutResult = (): RoundResult => ({ outcome: "timeout", delta: 0 });
+
+// Winner takes all: every team plays the same round at once and the first right answer takes the whole pot,
+// which is what every team could have earned at that moment (speed points × number of teams).
+export const winnerTakesAllPot = (timeLeft: number, questionTime: number, teamCount: number) =>
+  speedPoints(timeLeft, questionTime) * teamCount;
+
+// Winner takes all has no partial credit: a guess only wins if it names every Pokémon in the round.
+export const isFullyCorrect = (answers: PokemonSprite[], pickedIds: number[]) =>
+  answers.length > 0 && answers.every((answer) => pickedIds.includes(answer.id));

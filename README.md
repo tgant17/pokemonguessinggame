@@ -40,7 +40,7 @@ Then use **Create a room** on the home page. In development the site looks for t
 
 - Each room code gets its own Durable Object, a single server instance that runs the game for everyone in it.
 - The host's browser picks the Pokémon (as in solo play) and sends the rounds to the server. From then on the server runs the clock and scores every answer with the same engine (`src/lib/engine.ts`) solo play uses, so all players see the same Pokémon and the same countdown.
-- Each round's clock starts once everyone's sprites have loaded (or after 4 seconds). Answers stay hidden until everyone still connected has answered or time runs out, so a player who leaves doesn't hold up the round.
+- Each round's clock starts once everyone's sprites have loaded (or after 4 seconds). Answers stay hidden until everyone still connected has answered or time runs out, so a player who leaves doesn't hold up the round. Someone who disconnects still counts as playing for 3 seconds, so refreshing the page doesn't end the round without them.
 - Players are remembered by an id in the browser's local storage, so refreshing the page keeps your seat, score and any answer you'd locked in. People who join mid-game watch (and see each reveal) until the next game.
 - The first player to join hosts and picks the settings. If they're away, the next connected player can start; between games the host can hand hosting to someone else with **Make host**.
 - Players who have left are dropped from the list when the next game starts (or when the room is full and someone new joins). A room that everyone has left is wiped after 5 minutes.

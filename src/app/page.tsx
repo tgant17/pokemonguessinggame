@@ -591,6 +591,8 @@ export default function SpriteRushGame() {
                 alt={revealed ? `Sprite of ${formatName(answer.name)}` : "Hidden Pokémon silhouette"}
                 fill
                 sizes="(max-width: 640px) 80vw, 420px"
+                // Hidden silhouettes are flat black with no shadow: a shadow would paint over stacked sprites
+                // and give away their outlines.
                 className={`object-contain transition-[filter] duration-300 ${revealed ? "" : "brightness-0"}`}
                 priority
               />

@@ -166,6 +166,21 @@ export default function SpriteRushGame() {
   const [showTeams, setShowTeams] = useState(false);
 
   const currentRound = rounds[currentRoundIndex];
+  // Stacked silhouettes stay hidden until every sprite in the round has loaded, so none pops in before the others.
+  const [loadedSprites, setLoadedSprites] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
+  const spritesReady =
+    !!currentRound &&
+    loadedSprites.round === currentRoundIndex &&
+    currentRound.answers.every((answer) => loadedSprites.ids.includes(answer.id));
+  const markSpriteLoaded = useCallback(
+    (round: number, id: number) => {
+      setLoadedSprites((prev) => {
+        const ids = prev.round === round ? prev.ids : [];
+        return ids.includes(id) ? prev : { round, ids: [...ids, id] };
+      });
+    },
+    [],
+  );
 
   useEffect(() => {
     const loadNames = async () => {
@@ -244,6 +259,7 @@ export default function SpriteRushGame() {
       setIsPreparing(false);
       return;
     }
+    setLoadedSprites({ round: -1, ids: [] });
     setRounds(builtRounds);
     setCurrentRoundIndex(0);
     setScore(0);
@@ -294,7 +310,7 @@ export default function SpriteRushGame() {
   }, [status, advanceRound, applyScore, recordRoundPlayed, modeConfig]);
 
   useEffect(() => {
-    if (gameState !== "playing" || status !== "idle") return;
+    if (gameState !== "playing" || status !== "idle" || !spritesReady) return;
     const timer = setInterval(() => {
       setTimeLeft((prev) => {
         if (prev <= 1) {
@@ -306,7 +322,7 @@ export default function SpriteRushGame() {
       });
     }, 1000);
     return () => clearInterval(timer);
-  }, [gameState, status, handleTimeout, currentRoundIndex]);
+  }, [gameState, status, handleTimeout, currentRoundIndex, spritesReady]);
 
   const finishRound = (outcome: Exclude<RoundStatus, "idle" | "timeout">, delta: number) => {
     applyScore(delta);
@@ -318,7 +334,7 @@ export default function SpriteRushGame() {
   const speedPoints = () => Math.max(5, Math.round(timeLeft * SCORE_PER_SECOND));
 
   const handleChoice = (choice: PokemonSprite) => {
-    if (!currentRound || status !== "idle") return;
+    if (!currentRound || status !== "idle" || !spritesReady) return;
     if (isMulti) {
       // Multi-pick modes: tapping toggles a pick; one tap past the limit replaces the oldest pick.
       setSelectedIds((prev) => {
@@ -500,15 +516,23 @@ export default function SpriteRushGame() {
       return (
         // Hidden silhouettes get no glow at all: a shadow would paint over stacked sprites and give away outlines.
         <div className="relative h-64 w-full">
+          {!spritesReady && (
+            <div className="absolute inset-0 flex items-center justify-center text-sm text-slate-400">
+              Loading sprite{stackSize > 1 ? "s" : ""}...
+            </div>
+          )}
           {currentRound.answers.map((answer, index) => {
             // Stacked silhouettes sit on top of each other, then slide apart side by side on reveal.
             const offset = layout ? `${(index - (stackSize - 1) / 2) * layout.step}%` : "0%";
             const scale = layout ? layout.scale : 1;
             return (
               <div
-                key={answer.id}
+                key={`${currentRoundIndex}-${answer.id}`}
                 className="absolute inset-0 transition-transform duration-500 ease-out"
-                style={{ transform: `translateX(${offset}) scale(${scale})` }}
+                style={{
+                  transform: `translateX(${offset}) scale(${scale})`,
+                  visibility: spritesReady ? "visible" : "hidden",
+                }}
               >
                 <Image
                   src={answer.spriteUrl}
@@ -519,6 +543,9 @@ export default function SpriteRushGame() {
                     revealed ? "drop-shadow-[0_8px_20px_rgba(16,185,129,0.35)]" : "brightness-0 contrast-200"
                   }`}
                   priority
+                  // A failed image still counts as settled so a broken sprite can't stall the round forever.
+                  onLoad={() => markSpriteLoaded(currentRoundIndex, answer.id)}
+                  onError={() => markSpriteLoaded(currentRoundIndex, answer.id)}
                 />
               </div>
             );

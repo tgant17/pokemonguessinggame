@@ -410,7 +410,7 @@ type NameTagProps = {
   size?: "sm" | "md";
 };
 
-/** A colored name tag, the only place team colors appear. */
+/** A colored name tag, the only place colors appear. */
 export function NameTag({ label, color, className = "", size = "sm" }: NameTagProps) {
   return (
     <span

@@ -1,18 +1,18 @@
 # Who's that Pokémon?
 
-Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round shows a hidden sprite; players must pick the correct Pokémon before the timer runs out (8 seconds by default, selectable before each game). You can run solo, or enable the multi-team mode (Red, Blue, Yellow, Green) to pass the device around and keep a running score.
+Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round shows a hidden sprite; players must pick the correct Pokémon before the timer runs out (8 seconds by default, selectable before each game). Play solo, or open an online room and play with friends on your own phones.
 
 ## Features
 
 - Loads Pokémon names from a local cache (`public/pokemon-list.json`) so autocomplete works offline.
 - Prefetches all sprites for the round up front, preventing mid-round loading hitches.
 - Silhouette effect while guessing, then reveals the sprite after your answer.
-- Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds), and persistent per-team scoreboards.
+- Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds).
 - Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (10-second clock by default).
 - Super Hard mode: three stacked silhouettes, pick all three from 8 options (15-second clock by default).
 - Speed scoring: the clock is split into quarters. A correct answer in the first quarter earns 4 points, then 3, 2, and 1 in the final quarter. Wrong answers and time-outs score 0 and never take points away.
 - In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
-- Mobile-friendly UI with dynamic theming based on the active team.
+- Mobile-friendly UI.
 - Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard.
 
 ## Getting started

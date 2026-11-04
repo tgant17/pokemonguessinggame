@@ -30,15 +30,7 @@ import { useRouter } from "next/navigation";
 
 
 
-type TeamState = {
-  name: string;
-  color: string;
-  score: number;
-  rounds: number;
-};
-
-
-// Who posted a message in the chat log: a team, or the solo player.
+// Who posted a message in the chat log: you, a room player, or the host.
 type Tag = { label: string; color?: string };
 
 // One finished round, kept in the chat log on the top screen.
@@ -74,13 +66,6 @@ const REVEAL_LAYOUT: Record<number, { step: number; scale: number }> = {
 const NUMBER_WORDS = ["zero", "one", "two", "three"];
 
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
-
-const TEAM_PRESETS: TeamState[] = [
-  { name: "Red", color: "#f87171", score: 0, rounds: 0 },
-  { name: "Blue", color: "#60a5fa", score: 0, rounds: 0 },
-  { name: "Yellow", color: "#facc15", score: 0, rounds: 0 },
-  { name: "Green", color: "#4ade80", score: 0, rounds: 0 },
-];
 
 const SOLO_TAG: Tag = { label: "You" };
 const HOST_TAG: Tag = { label: "Host" };
@@ -141,7 +126,7 @@ function Message({ tag, children, className = "" }: { tag: Tag; children: ReactN
   );
 }
 
-// Solo and pass-the-device play by default; pass a room code to play in a multiplayer room.
+// Solo play by default; pass a room code to play in a multiplayer room.
 export default function SpriteRushGame({ roomCode = null }: { roomCode?: string | null }) {
   const inRoom = roomCode !== null;
   const router = useRouter();
@@ -154,29 +139,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [selection, setSelection] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [teams, setTeams] = useState<TeamState[]>(TEAM_PRESETS);
-  const [activeTeam, setActiveTeam] = useState<string>(TEAM_PRESETS[0].name);
-  const [showTeams, setShowTeams] = useState(false);
   const [history, setHistory] = useState<RoundRecord[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
 
-  const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
-  const teamTag = useMemo<Tag>(
-    () => (showTeams ? { label: activeTeamData.name, color: activeTeamData.color } : SOLO_TAG),
-    [showTeams, activeTeamData.name, activeTeamData.color],
-  );
   // The round-result handler reads the tag through a ref, since in a room the tag (your name) comes from
   // the room hook, which itself needs the handler.
-  const tagRef = useRef<Tag>(teamTag);
+  const tagRef = useRef<Tag>(SOLO_TAG);
 
-  // Each finished round goes to the chat log, and in solo play to the active team's totals.
+  // Each finished round goes to the chat log.
   const handleRoundResult = useCallback(
     ({ roundIndex, round, answer }: RoundResultEvent) => {
-      if (!inRoom) setTeams((prevTeams) =>
-        prevTeams.map((team) =>
-          team.name === activeTeam ? { ...team, score: team.score + answer.delta, rounds: team.rounds + 1 } : team,
-        ),
-      );
       setHistory((prev) => [
         ...prev,
         {
@@ -190,7 +162,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         },
       ]);
     },
-    [activeTeam, inRoom],
+    [],
   );
 
   const localGame = useLocalGame(handleRoundResult);
@@ -199,8 +171,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const game: GameController = inRoom ? roomGame : localGame;
   const { view } = game;
   const currentTag = useMemo<Tag>(
-    () => (inRoom ? { label: room?.me?.name ?? "You" } : teamTag),
-    [inRoom, room?.me?.name, teamTag],
+    () => (inRoom ? { label: room?.me?.name ?? "You" } : SOLO_TAG),
+    [inRoom, room?.me?.name],
   );
   useEffect(() => {
     tagRef.current = currentTag;
@@ -436,7 +408,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         <span className="flex items-center gap-1 whitespace-nowrap">
           <SketchIcon name="star" className="h-4 w-4" strokeWidth={2.2} />
           <span className="tabular-nums">{score}</span>
-          <span className="hidden text-ink-soft sm:inline">· total {activeTeamData.score}</span>
         </span>
         <div className="ml-auto">{renderTimerGauge()}</div>
       </div>
@@ -605,7 +576,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               Final score: {score}
             </p>
             <p className="mt-1 font-hand text-lg leading-snug text-ink-soft">
-              {room && standings.length > 1 ? winnerLine() : `You finished ${totalRounds} rounds. Switch teams or play again!`}
+              {room && standings.length > 1 ? winnerLine() : `You finished ${totalRounds} rounds. Play again!`}
             </p>
           </Message>
         )}
@@ -1158,58 +1129,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           </SketchPanel>
         </div>
 
-        {inRoom ? (
-          renderPlayersPanel()
-        ) : (
-          <>
-            {multiplayerAvailable && renderPlayOnlinePanel()}
-            <SketchPanel className="p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <SectionLabel>Team play</SectionLabel>
-                  <p className="font-hand text-xl font-bold leading-tight">Pass the device between teams and track points</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowTeams((prev) => !prev)}
-                  aria-expanded={showTeams}
-                  className={`${choiceButtonClass(false)} shrink-0 px-3 py-2 text-sm`}
-                >
-                  <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
-                  {showTeams ? "Hide teams" : "Show teams"}
-                </button>
-              </div>
-
-              {showTeams && (
-                <div className="mt-4">
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {teams.map((team) => {
-                      const active = activeTeam === team.name;
-                      return (
-                        <button
-                          key={team.name}
-                          type="button"
-                          onClick={() => setActiveTeam(team.name)}
-                          aria-pressed={active}
-                          className={`${choiceButtonClass(false)} flex flex-col items-start gap-1.5 px-3 pb-2.5 pt-3 text-left`}
-                        >
-                          <SketchFrame radius={14} wobble={1} strokeWidth={active ? 2.8 : 2.2} fill="paper" traced={active} />
-                          <NameTag label={team.name} color={team.color} />
-                          <span className="text-sm leading-tight">Score {team.score}</span>
-                          <span className="text-xs leading-tight text-ink-soft">Rounds {team.rounds}</span>
-                          {active && <span className="font-hand text-base font-bold leading-none">playing now!</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-3 text-xs text-ink-soft">
-                    Current team: <span className="text-ink">{activeTeam}</span>. Scores update automatically after each round.
-                  </p>
-                </div>
-              )}
-            </SketchPanel>
-          </>
-        )}
+        {inRoom ? renderPlayersPanel() : multiplayerAvailable && renderPlayOnlinePanel()}
 
         <p className="text-center text-xs text-ink-soft">Sprite data fetched live from the PokéAPI sprites collection.</p>
       </div>

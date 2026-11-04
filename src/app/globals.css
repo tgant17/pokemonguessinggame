@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Black ink on white paper, like a chat canvas. Team colors only appear on name tags. */
+/* Black ink on white paper, like a chat canvas. Colors only appear on name tags. */
 :root {
   color-scheme: light;
   --paper: #ffffff;

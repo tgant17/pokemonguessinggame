@@ -136,13 +136,10 @@ const TEAM_PRESETS: TeamState[] = [
 const SOLO_TAG: Tag = { label: "You" };
 const HOST_TAG: Tag = { label: "Host" };
 
-// Correct answers score by which third of the clock they land in:
-// first third (fastest) = 3, middle third = 2, final third = 1.
-const POINTS_FAST = 3;
-const POINTS_MID = 2;
-const POINTS_SLOW = 1;
-const PENALTY_WRONG = 1;
-const PENALTY_TIMEOUT = 1;
+// Correct answers score by which quarter of the clock they land in:
+// first quarter (fastest) = 4, then 3, 2, and 1 in the final quarter.
+// Wrong answers and time-outs score nothing but never take points away.
+const SPEED_TIERS = 4;
 
 const spriteFromResponse = (data: PokemonSpriteResponse): string | null => {
   const padded = data.id.toString().padStart(3, "0");
@@ -406,9 +403,8 @@ export default function SpriteRushGame() {
   const handleTimeout = useCallback(() => {
     if (status !== "idle") return;
     setStatus("timeout");
-    applyScore(-PENALTY_TIMEOUT);
     recordRoundPlayed();
-    logRound("timeout", -PENALTY_TIMEOUT, []);
+    logRound("timeout", 0, []);
     setTimeout(() => advanceRound(), modeConfig.revealDelay);
   }, [status, advanceRound, applyScore, recordRoundPlayed, logRound, modeConfig]);
 
@@ -441,12 +437,7 @@ export default function SpriteRushGame() {
     setTimeout(() => advanceRound(), modeConfig.revealDelay);
   };
 
-  const speedPoints = () => {
-    const remaining = timeLeft / questionTime;
-    if (remaining > 2 / 3) return POINTS_FAST;
-    if (remaining > 1 / 3) return POINTS_MID;
-    return POINTS_SLOW;
-  };
+  const speedPoints = () => Math.max(1, Math.ceil((timeLeft / questionTime) * SPEED_TIERS));
 
   const handleChoice = (choice: PokemonSprite) => {
     if (!currentRound || status !== "idle" || !spritesReady) return;
@@ -463,7 +454,7 @@ export default function SpriteRushGame() {
     if (choice.id === currentRound.answers[0].id) {
       finishRound("correct", speedPoints(), [choice.id]);
     } else {
-      finishRound("wrong", -PENALTY_WRONG, [choice.id]);
+      finishRound("wrong", 0, [choice.id]);
     }
   };
 
@@ -476,7 +467,7 @@ export default function SpriteRushGame() {
       // Partial credit scales with how many of the stacked Pokémon were named.
       finishRound("partial", Math.round((speedPoints() * hits) / currentRound.answers.length), selectedIds);
     } else {
-      finishRound("wrong", -PENALTY_WRONG, selectedIds);
+      finishRound("wrong", 0, selectedIds);
     }
   };
 

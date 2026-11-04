@@ -68,6 +68,23 @@ The room server runs on Cloudflare Workers, which works on the free plan.
 
 Until `NEXT_PUBLIC_PARTY_HOST` is set, production builds hide the multiplayer buttons and solo play works as before.
 
+### Multiplayer in preview deployments
+
+Each pull request can get its own copy of the room server, so its Vercel preview plays online rooms with that branch's version of `party/room.ts` instead of the live one. The workflow `.github/workflows/preview-rooms.yml` deploys the copy as a separate Worker named after the branch (for example `pokemonguessinggame-rooms-feature-winner-takes-all`), updates it on every push, and deletes it when the pull request closes. Preview builds work out the same name (`src/lib/previewRooms.ts`) and connect to it.
+
+One-time setup:
+
+1. In Cloudflare, go to **My Profile → API Tokens → Create Token** and use the **Edit Cloudflare Workers** template. Copy your account ID too; `npx wrangler whoami` prints it.
+2. In GitHub, go to **Settings → Secrets and variables → Actions** and add the repository secrets `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`.
+3. In Vercel, add the environment variable `PREVIEW_PARTY_DOMAIN` for **Preview** only. Set it to your workers.dev domain, which is everything after the first dot of `NEXT_PUBLIC_PARTY_HOST`, e.g. `<your-subdomain>.workers.dev`.
+
+After that, push a commit to a pull request. The workflow deploys its room server, and Vercel rebuilds the preview with multiplayer turned on.
+
+- Preview rooms are separate from the live site's rooms, and from each other's.
+- A branch only gets a room server once it has an open pull request. Previews of branches without one show the multiplayer buttons, but their rooms won't connect.
+- Each open pull request uses one Worker. The Workers Free plan allows 100.
+- Merging still doesn't update the live room server. Run `npm run deploy:party` from `main` after merging server changes.
+
 
 ## Scripts
 

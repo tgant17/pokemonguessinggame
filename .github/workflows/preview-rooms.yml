@@ -1,0 +1,88 @@
+# Gives each pull request its own copy of the multiplayer room server, so its Vercel preview can play online
+# rooms running that branch's version of party/room.ts. The copy is a separate Cloudflare Worker named after
+# the branch (src/lib/previewRooms.ts), which is how the preview build finds it. It's updated on every push and
+# deleted when the pull request closes. One-time setup: README, "Multiplayer in preview deployments".
+name: Preview room server
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize, closed]
+
+# One run per branch at a time: a newer push, or closing the pull request, replaces a run still going.
+concurrency:
+  group: preview-rooms-${{ github.head_ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  room-server:
+    # Pull requests from forks don't get the repository's secrets.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      BRANCH: ${{ github.head_ref }}
+    steps:
+      - name: Check for Cloudflare credentials
+        run: |
+          if [ -n "$CLOUDFLARE_API_TOKEN" ] && [ -n "$CLOUDFLARE_ACCOUNT_ID" ]; then
+            echo "READY=true" >> "$GITHUB_ENV"
+          else
+            echo "::warning::Skipped: add the CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID repository secrets to give pull requests their own room server (see the README)."
+          fi
+
+      - uses: actions/checkout@v4
+        if: env.READY == 'true'
+        with:
+          # The branch as pushed, which is what Vercel builds, rather than a trial merge with main.
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - uses: actions/setup-node@v4
+        if: env.READY == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: env.READY == 'true'
+        run: npm ci
+
+      - name: Work out the Worker's name
+        if: env.READY == 'true'
+        run: |
+          # Branches from before this workflow existed don't build previews that look for a room server.
+          if [ ! -f src/lib/previewRooms.ts ]; then
+            echo "::warning::Skipped: merge main into $BRANCH to give its preview its own room server."
+            echo "READY=false" >> "$GITHUB_ENV"
+            exit 0
+          fi
+          worker=$(node -e 'import("./src/lib/previewRooms.ts").then((m) => console.log(m.previewWorkerName(process.env.BRANCH)))')
+          echo "WORKER=$worker" >> "$GITHUB_ENV"
+
+      - name: Deploy this branch's room server
+        if: env.READY == 'true' && github.event.action != 'closed'
+        run: |
+          npx wrangler deploy --name "$WORKER" | tee "$RUNNER_TEMP/deploy.log"
+          url=$(grep -oE 'https://[a-z0-9.-]+\.workers\.dev' "$RUNNER_TEMP/deploy.log" | head -n 1)
+          echo "Room server for \`$BRANCH\`: ${url:-$WORKER}" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Delete this branch's room server
+        if: env.READY == 'true' && github.event.action == 'closed'
+        run: |
+          # --force skips the confirmation prompt and removes the Worker's rooms with it.
+          if out=$(npx wrangler delete --name "$WORKER" --force 2>&1); then
+            echo "$out"
+          elif grep -qiE '10007|not found|does not exist' <<< "$out"; then
+            echo "$out"
+            echo "No room server to delete for $BRANCH."
+          else
+            echo "$out"
+            exit 1
+          fi

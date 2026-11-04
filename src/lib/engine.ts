@@ -92,16 +92,21 @@ export const submitAnswer = (state: GameState, playerId: string, pickedIds: numb
   return { ...state, answers };
 };
 
+// Ends the round now: anyone who hasn't answered times out, and the answers are revealed.
+// Used when time runs out, and by rooms when everyone still connected has answered.
+export const closeRound = (state: GameState, now: number): GameState => {
+  if (state.phase !== "playing") return state;
+  const answers = { ...state.answers };
+  for (const id of state.playerIds) {
+    if (!answers[id]) answers[id] = { pickedIds: [], ...timeoutResult() };
+  }
+  return reveal(state, now, answers);
+};
+
 // Moves the game along when a deadline has passed: times out anyone who hasn't answered,
 // and moves from the reveal to the next round (or the end of the game).
 export const tick = (state: GameState, now: number): GameState => {
-  if (state.phase === "playing" && state.roundEndsAt !== null && now >= state.roundEndsAt) {
-    const answers = { ...state.answers };
-    for (const id of state.playerIds) {
-      if (!answers[id]) answers[id] = { pickedIds: [], ...timeoutResult() };
-    }
-    return reveal({ ...state, roundEndsAt: now }, now, answers);
-  }
+  if (state.phase === "playing" && state.roundEndsAt !== null && now >= state.roundEndsAt) return closeRound(state, now);
   if (state.phase === "reveal" && state.revealEndsAt !== null && now >= state.revealEndsAt) {
     if (state.roundIndex + 1 >= state.rounds.length) return { ...state, phase: "finished", revealEndsAt: null };
     return {

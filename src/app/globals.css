@@ -2,20 +2,84 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Black ink on white paper, like a chat canvas. Team colors only appear on name tags. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
+  color-scheme: light;
+  --paper: #ffffff;
+  --paper-hover: #f1f2f4;
+  --ink: #1c1c1e;
+  --ink-soft: #6d7075;
+  --ink-faint: #a9adb3;
+  --rule: #dfe3e8;
+  --chrome: #e4e6e9;
+  --chrome-soft: #f4f5f7;
+  --chrome-dot: #c9cdd2;
 }
 
 body {
-  color: var(--foreground);
-  background: var(--background);
-  font-family: Arial, Helvetica, sans-serif;
+  color: var(--ink);
+  background-color: var(--chrome);
+  background-image: radial-gradient(var(--chrome-dot) 1px, transparent 1.2px);
+  background-size: 18px 18px;
+  font-family: var(--font-pixel), ui-monospace, monospace;
+}
+
+/* Strokes that draw themselves in, as if a stylus is tracing them. */
+.sketch-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: sketch-draw 0.55s cubic-bezier(0.45, 0.05, 0.35, 1) forwards;
+}
+
+@keyframes sketch-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+/* A new chat message slides up into the log. */
+.message-in {
+  animation: message-in 0.35s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes message-in {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.blink {
+  animation: blink 1.1s steps(1) infinite;
+}
+
+@keyframes blink {
+  50% {
+    opacity: 0;
+  }
+}
+
+/* Buttons drawn as paper boxes get a faint shade under the stylus. */
+button:not(:disabled):hover > svg > .sketch-fill-paper {
+  fill: var(--paper-hover);
+}
+
+.hatch-fill {
+  background-image: repeating-linear-gradient(-45deg, var(--ink) 0 2px, transparent 2px 5px);
+}
+
+.feed-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--ink) transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sketch-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+  .message-in,
+  .blink {
+    animation: none;
+  }
 }

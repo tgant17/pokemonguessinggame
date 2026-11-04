@@ -136,9 +136,13 @@ const TEAM_PRESETS: TeamState[] = [
 const SOLO_TAG: Tag = { label: "You" };
 const HOST_TAG: Tag = { label: "Host" };
 
-const SCORE_PER_SECOND = 12;
-const PENALTY_WRONG = 15;
-const PENALTY_TIMEOUT = 12;
+// Correct answers score by which third of the clock they land in:
+// first third (fastest) = 3, middle third = 2, final third = 1.
+const POINTS_FAST = 3;
+const POINTS_MID = 2;
+const POINTS_SLOW = 1;
+const PENALTY_WRONG = 1;
+const PENALTY_TIMEOUT = 1;
 
 const spriteFromResponse = (data: PokemonSpriteResponse): string | null => {
   const padded = data.id.toString().padStart(3, "0");
@@ -437,7 +441,12 @@ export default function SpriteRushGame() {
     setTimeout(() => advanceRound(), modeConfig.revealDelay);
   };
 
-  const speedPoints = () => Math.max(5, Math.round(timeLeft * SCORE_PER_SECOND));
+  const speedPoints = () => {
+    const remaining = timeLeft / questionTime;
+    if (remaining > 2 / 3) return POINTS_FAST;
+    if (remaining > 1 / 3) return POINTS_MID;
+    return POINTS_SLOW;
+  };
 
   const handleChoice = (choice: PokemonSprite) => {
     if (!currentRound || status !== "idle" || !spritesReady) return;

@@ -13,6 +13,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Speed scoring: the clock is split into quarters. A correct answer in the first quarter earns 4 points, then 3, 2, and 1 in the final quarter. Wrong answers and time-outs score 0 and never take points away.
 - In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI with dynamic theming based on the active team.
+- Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard.
 
 ## Getting started
 
@@ -23,7 +24,24 @@ npm run fetch:pokemon   # refresh the cached name list (optional but recommended
 npm run dev
 ```
 
-Open http://localhost:3000 in your browser. Edit files under `src/app/` and the page will hot reload.
+Open http://localhost:3000 in your browser. Edit files under `src/` and the page will hot reload.
+
+### Multiplayer in development
+
+Multiplayer rooms run on a small Cloudflare Worker (`party/room.ts`). In a second terminal:
+
+```bash
+npm run dev:party       # wrangler dev on port 8787, no Cloudflare account needed
+```
+
+Then use **Create a room** on the home page. In development the site looks for the room server on port 8787 of whatever host served the page, so phones on the same Wi-Fi can join via your computer's IP address (for example http://192.168.1.20:3000/room/ABCD, with `npm run dev -- -H 0.0.0.0`).
+
+## How multiplayer works
+
+- Each room code gets its own Durable Object, a single server instance that runs the game for everyone in it.
+- The host's browser picks the Pokémon (as in solo play) and sends the rounds to the server. From then on the server runs the clock and scores every answer with the same engine (`src/lib/engine.ts`) solo play uses, so all players see the same Pokémon and the same countdown.
+- Each round's clock starts once everyone's sprites have loaded (or after 4 seconds). Answers stay hidden until everyone has answered or time runs out.
+- Players are remembered by an id in the browser's local storage, so refreshing the page keeps your seat and score. People who join mid-game watch until the next game.
 
 ## Deployment (Vercel)
 
@@ -36,6 +54,15 @@ Open http://localhost:3000 in your browser. Edit files under `src/app/` and the 
    - Output Directory: `.next`.
 4. Deploy.
 
+### Multiplayer server (Cloudflare)
+
+The room server runs on Cloudflare Workers, which works on the free plan.
+
+1. Create a free account at https://dash.cloudflare.com/sign-up.
+2. From this folder, run `npx wrangler login`, then `npm run deploy:party`. Wrangler prints the Worker's address, e.g. `https://pokemonguessinggame-rooms.<your-subdomain>.workers.dev`.
+3. In Vercel, add the environment variable `NEXT_PUBLIC_PARTY_HOST` with that host (without `https://`), e.g. `pokemonguessinggame-rooms.<your-subdomain>.workers.dev`, then redeploy.
+
+Until `NEXT_PUBLIC_PARTY_HOST` is set, production builds hide the multiplayer buttons and solo play works as before.
 
 
 ## Scripts
@@ -47,3 +74,7 @@ Open http://localhost:3000 in your browser. Edit files under `src/app/` and the 
 | `npm run start` | Run production build |
 | `npm run lint` | ESLint |
 | `npm run fetch:pokemon` | Refresh cached Pokémon list |
+| `npm run dev:party` | Run the multiplayer room server locally (port 8787) |
+| `npm run deploy:party` | Deploy the room server to Cloudflare |
+| `npm test` | Unit tests for the game rules, engine and rooms |
+| `npm run typecheck` | Type-check the site and the room server |

@@ -1,0 +1,11 @@
+// Cloudflare Worker for multiplayer rooms (see party/room.ts). Works on the Workers Free plan.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "pokemonguessinggame-rooms",
+  "main": "party/room.ts",
+  "compatibility_date": "2026-10-01",
+  "durable_objects": {
+    "bindings": [{ "name": "Room", "class_name": "Room" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+}

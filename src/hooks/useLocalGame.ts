@@ -26,6 +26,8 @@ export type GameView = {
   timeLeft: number;
   myAnswer: PlayerAnswer | undefined;
   myScore: number;
+  // True when this player can't answer right now: already locked in (waiting for others) or only watching.
+  locked: boolean;
 };
 
 export type RoundResultEvent = { roundIndex: number; round: RoundData; answer: PlayerAnswer };
@@ -102,6 +104,7 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
       timeLeft: secondsLeft(game, now),
       myAnswer: game.answers[ME],
       myScore: game.scores[ME] ?? 0,
+      locked: false,
     };
   }, [game, now]);
 

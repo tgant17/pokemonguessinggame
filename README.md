@@ -14,7 +14,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - In Hard and Legendary, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI.
 - Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard. Each player joins with a name tag (up to 10 characters, or roll the die for two Pokémon names mashed together) and a partner picked from three random Pokémon.
-- Your name tag: tap it to change your name and pick its color on a color wheel. Both are remembered on your device, and in a room everyone sees changes right away.
+- Your name tag: tap it to change your name (type one or roll the die) and pick its color on a color wheel. A new name takes when you tick the check; the color changes as you pick it. Both are remembered on your device, and in a room everyone sees changes right away.
 - **Extras → Winner takes all** (rooms only, toggle under the main settings): the first player to answer fully right takes the whole pot (speed points × number of players) and the round ends there. Everyone else scores 0 that round. You get one guess each, with no partial credit in Hard and Legendary. If nobody gets it, nobody scores.
 
 ## Getting started
@@ -47,7 +47,7 @@ Then pick **Multiplayer** on the home page and use **Create a room**. In develop
 - The first player to join hosts and picks the settings. If they're away, the next connected player can start; between games the host can hand hosting to someone else with **Make host**.
 - Players who have left are dropped from the list when the next game starts (or when the room is full and someone new joins). A room that everyone has left is wiped after 5 minutes.
 - To join, each player writes a name of up to 10 characters and picks a partner from three random Pokémon. Stuck for a name? The die next to the name box mashes two random Pokémon together (Pikachu + Charizard → Pikazard). Roll again as often as you like. The partner shows as a little pixel sprite next to their name in the players list and in the room's chat.
-- The chat log on the top screen announces everyone who joins (with their partner) and every name change. Editing a name letter by letter shows as a single change. Something that happens mid-game appears just before the round it happened in, and each new game starts a fresh log.
+- The chat log on the top screen announces everyone who joins (with their partner) and every name change (one line each time someone saves a new name). Something that happens mid-game appears just before the round it happened in, and each new game starts a fresh log.
 - Rooms hold up to 12 players.
 
 ## Deployment (Vercel)

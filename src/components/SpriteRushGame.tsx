@@ -229,14 +229,12 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     return () => clearTimeout(timer);
   }, [roomProfile, profile, updateProfile]);
 
-  // Same for your name, which can be changed after joining.
+  // Same for your name, which can be changed after joining. The name tag only saves a name once it's
+  // confirmed, so each change goes straight to the room (and its chat log).
   const { rename } = roomGame;
   const roomName = room?.me?.name;
   useEffect(() => {
-    if (!roomName || !myName || roomName === myName) return;
-    // Typing changes the name on every key; send only once it settles.
-    const timer = setTimeout(() => rename(myName), 300);
-    return () => clearTimeout(timer);
+    if (roomName && myName && roomName !== myName) rename(myName);
   }, [roomName, myName, rename]);
   useEffect(() => {
     tagRef.current = currentTag;
@@ -1257,6 +1255,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 onNameChange={joining ? setNameDraft : roomGame.saveName}
                 color={profile.color}
                 onColorChange={(color) => setProfile({ color })}
+                pokemonNames={pokemonNames}
                 className="max-w-[65%]"
               />
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>

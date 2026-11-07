@@ -13,7 +13,7 @@ import {
   parseClientMessage,
   type ClientMessage,
 } from "./protocol.ts";
-import { MAX_EVENTS, READY_TIMEOUT_MS, RENAME_MERGE_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
+import { MAX_EVENTS, READY_TIMEOUT_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
 
 const mon = (id: number): PokemonSprite => ({
   id,
@@ -353,25 +353,12 @@ test("joins and name changes go in everyone's chat log, in order", () => {
   assert.equal(chatLog(room).length, 4);
 });
 
-test("editing a name letter by letter shows up as one change", () => {
+test("every confirmed name change gets its own line, however quickly they come", () => {
   const room = twoPlayerRoom();
-  for (const [name, at] of [["As", 0], ["A", 400], ["R", 900], ["Re", 1200], ["Red", 1500]] as const) {
-    room.handle("ash", { type: "rename", name }, T0 + at);
-  }
-  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red"]);
-
-  // Typing back to the name you started with takes the line away again.
-  room.handle("ash", { type: "rename", name: "Ash" }, T0 + 2000);
-  assert.deepEqual(chatLog(room).slice(2), []);
-
-  // A change long after the last one is news of its own...
-  room.handle("ash", { type: "rename", name: "Red" }, T0 + 3000);
-  room.handle("ash", { type: "rename", name: "Blue" }, T0 + 3000 + RENAME_MERGE_MS);
-  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red", "lobby: Red→Blue"]);
-  // ...and so is one after something else happened in between.
-  room.handle("misty", { type: "rename", name: "Kasumi" }, T0 + 3000 + RENAME_MERGE_MS);
-  room.handle("ash", { type: "rename", name: "Green" }, T0 + 3000 + RENAME_MERGE_MS);
-  assert.deepEqual(chatLog(room).slice(4), ["lobby: Misty→Kasumi", "lobby: Blue→Green"]);
+  room.handle("ash", { type: "rename", name: "Red" }, T0);
+  room.handle("ash", { type: "rename", name: "Blue" }, T0 + 100);
+  room.handle("ash", { type: "rename", name: "Ash" }, T0 + 200);
+  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red", "lobby: Red→Blue", "lobby: Blue→Ash"]);
 });
 
 test("the chat log notes the round things happened in, and starts over each game", () => {

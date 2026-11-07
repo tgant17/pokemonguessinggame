@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   createGame,
+  gameSummary,
   nextWakeAt,
+  roundWinners,
   secondsLeft,
   startClock,
   submitAnswer,
@@ -178,4 +180,41 @@ test("winner takes all: no partial credit, and nobody scores if nobody gets it",
   game = tick(game, T0 + 10_000);
   assert.equal(game.phase, "reveal");
   assert.deepEqual(game.scores, { a: 0, b: 0, c: 0 });
+});
+
+test("each revealed round is kept for the end-of-game summary", () => {
+  const rounds = makeRounds(2, 4, 1);
+  let game = startClock(createGame(normal, rounds, ["ash", "misty"]), T0);
+  game = submitAnswer(game, "ash", [1], T0 + 500);
+  game = submitAnswer(game, "misty", [2], T0 + 600);
+  game = tick(game, game.revealEndsAt!);
+  game = startClock(game, T0 + 5000);
+  game = submitAnswer(game, "misty", [11], T0 + 5000);
+  game = tick(game, T0 + 5000 + 8000); // Ash times out
+  game = tick(game, game.revealEndsAt!);
+  assert.equal(game.phase, "finished");
+  assert.deepEqual(gameSummary(game), [
+    {
+      answers: [rounds[0].answers[0]],
+      results: {
+        ash: { pickedIds: [1], outcome: "correct", delta: 4 },
+        misty: { pickedIds: [2], outcome: "wrong", delta: 0 },
+      },
+    },
+    {
+      answers: [rounds[1].answers[0]],
+      results: {
+        misty: { pickedIds: [11], outcome: "correct", delta: 4 },
+        ash: { pickedIds: [], outcome: "timeout", delta: 0 },
+      },
+    },
+  ]);
+});
+
+test("a round is won by whoever scored the most in it, ties share it, and nobody wins a pointless round", () => {
+  const answer = (delta: number) => ({ pickedIds: [], outcome: delta ? ("correct" as const) : ("wrong" as const), delta });
+  assert.deepEqual(roundWinners({ ash: answer(3), misty: answer(4), brock: answer(1) }), ["misty"]);
+  assert.deepEqual(roundWinners({ ash: answer(4), misty: answer(4), brock: answer(1) }), ["ash", "misty"]);
+  assert.deepEqual(roundWinners({ ash: answer(0), misty: answer(0) }), []);
+  assert.deepEqual(roundWinners({}), []);
 });

@@ -6,8 +6,10 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { ChatComposer, DrawingView } from "@/components/ChatComposer";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { CountdownIntro } from "@/components/CountdownIntro";
+import { GameSummaryModal, type SummaryPlayer } from "@/components/GameSummaryModal";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
 import { JoinRoomScreen } from "@/components/JoinRoomScreen";
+import { OutcomeMark, PartnerIcon } from "@/components/marks";
 import {
   NameTag,
   SketchFrame,
@@ -32,7 +34,7 @@ import {
   type RoundStatus,
 } from "@/lib/game";
 import type { GameSettings } from "@/lib/engine";
-import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
+import { ME, useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
 import { cleanName, type RoomEvent } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
@@ -50,22 +52,6 @@ const profileTag = (label: string, profile: Profile, partner?: PokemonSprite | n
   color: profile.color,
   icon: partner ? pokemonIconUrl(partner.id) : null,
 });
-
-// A player's partner as a pixel sprite, like the option icons in Hard and Legendary. Front sprites have wide
-// transparent margins, so callers pull them in with negative margins to keep the Pokémon a readable size.
-function PartnerIcon({ partner, className = "" }: { partner: PokemonSprite; className?: string }) {
-  return (
-    <Image
-      src={pokemonIconUrl(partner.id)}
-      alt=""
-      width={44}
-      height={44}
-      unoptimized
-      className={`h-11 w-11 shrink-0 ${className}`}
-      style={{ imageRendering: "pixelated" }}
-    />
-  );
-}
 
 // One finished round, kept in the chat log on the top screen.
 type RoundRecord = {
@@ -116,29 +102,6 @@ const HOST_TAG: Tag = { label: "Host" };
 
 
 const formatDelta = (delta: number) => (delta > 0 ? `+${delta}` : `${delta}`);
-
-const OUTCOME_ICON: Record<RoundOutcome, "check" | "cross" | "clock" | null> = {
-  correct: "check",
-  partial: null,
-  wrong: "cross",
-  timeout: "clock",
-};
-
-function OutcomeMark({ outcome, hits, total, draw = false, className = "h-6 w-6" }: {
-  outcome: RoundOutcome;
-  hits: number;
-  total: number;
-  draw?: boolean;
-  className?: string;
-}) {
-  const icon = OUTCOME_ICON[outcome];
-  if (icon) return <SketchIcon name={icon} className={className} strokeWidth={2.8} draw={draw} />;
-  return (
-    <span className="font-hand text-2xl font-bold leading-none">
-      {hits}/{total}
-    </span>
-  );
-}
 
 // A one-line system message in the chat log, e.g. "Normal · 10 rounds".
 function Notice({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
@@ -818,6 +781,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             <p className="mt-1 font-hand text-lg leading-snug text-ink-soft">
               {room && standings.length > 1 ? winnerLine() : `You finished ${totalRounds} rounds. Play again!`}
             </p>
+            {summary && (
+              <button
+                type="button"
+                onClick={() => setSummaryOpen(true)}
+                className={`${choiceButtonClass(false)} mt-3 px-3 py-1.5 text-sm`}
+              >
+                <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
+                Round-by-round summary
+              </button>
+            )}
           </Message>
         )}
         {roomEvents.filter((event) => event.round === null).map(renderRoomEvent)}
@@ -1149,6 +1122,29 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     return top.id === room.you ? "You won! 🏆" : `${top.name} won with ${top.score}!`;
   };
 
+  // The round-by-round summary opens by itself when a game ends, once per game, and can be reopened from the
+  // "Game complete!" message. It closes if the host starts the next game while it's open.
+  const summary = gameState === "finished" ? (view?.summary ?? null) : null;
+  const [summaryOpen, setSummaryOpen] = useState(false);
+  const summaryShownFor = useRef<number | null>(null);
+  useEffect(() => {
+    if (!summary || viewGameId === null || summaryShownFor.current === viewGameId) return;
+    summaryShownFor.current = viewGameId;
+    setSummaryOpen(true);
+  }, [summary, viewGameId]);
+  const summaryPlayers = useMemo<SummaryPlayer[]>(() => {
+    if (!room) return [{ id: ME, name: myName ?? "You", color: profile.color }];
+    return room.players.map((player) => {
+      const isYou = player.id === room.you;
+      return {
+        id: player.id,
+        name: isYou ? (myName ?? player.name) : player.name,
+        color: isYou ? profile.color : player.profile?.color,
+        partner: player.partner,
+      };
+    });
+  }, [room, myName, profile.color]);
+
   const copyRoomLink = async () => {
     try {
       await navigator.clipboard.writeText(roomUrl);
@@ -1421,6 +1417,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         </div>
 
         {inRoom && renderPlayersPanel()}
+
+        {summary && (
+          <GameSummaryModal
+            open={summaryOpen}
+            onClose={() => setSummaryOpen(false)}
+            rounds={summary}
+            players={summaryPlayers}
+            subtitle={gameSummary}
+          />
+        )}
 
         <p className="text-center text-xs text-ink-soft">Sprite data fetched live from the PokéAPI sprites collection.</p>
       </div>

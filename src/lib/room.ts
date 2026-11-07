@@ -1,7 +1,7 @@
 // One multiplayer room: who's in it, who's hosting, and the game being played. The Worker in
 // party/room.ts wires this to WebSockets; everything here is plain logic so it can be unit-tested.
 
-import { answersStayOpen, closeRound, createGame, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
+import { answersStayOpen, closeRound, createGame, gameSummary, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
 import { INTRO_COUNTDOWN_MS, type PokemonSprite } from "./game.ts";
 import {
   CHAT_BURST,
@@ -249,6 +249,7 @@ export class RoomState {
               inGame: game.playerIds.includes(you),
               myPicks: game.answers[you]?.pickedIds ?? null,
               myAnswer: revealed ? (game.answers[you] ?? null) : null,
+              ...(game.phase === "finished" ? { summary: gameSummary(game) } : {}),
             }
           : null,
       settings: this.settings,

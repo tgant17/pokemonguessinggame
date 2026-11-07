@@ -13,7 +13,7 @@ import {
   parseClientMessage,
   type ClientMessage,
 } from "./protocol.ts";
-import { READY_TIMEOUT_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
+import { MAX_EVENTS, READY_TIMEOUT_MS, RENAME_MERGE_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
 
 const mon = (id: number): PokemonSprite => ({
   id,
@@ -323,6 +323,95 @@ test("players can change their name after joining, and everyone sees it", () => 
   assert.deepEqual(parse({ type: "rename", name: "  Brock \n of Pewter " }), { type: "rename", name: "Brock of P" });
   assert.equal(parse({ type: "rename", name: "   " }), null);
   assert.equal(parse({ type: "rename", name: 42 }), null);
+});
+
+// The chat log as "Ash joined" / "Ash→Red" lines, with the round each happened in ("lobby" between games).
+const chatLog = (room: RoomState, now = T0) =>
+  (room.snapshotFor("ash", now).events ?? []).map((event) =>
+    `${event.round ?? "lobby"}: ${event.kind === "join" ? `${event.name} joined` : `${event.from}→${event.to}`}`,
+  );
+const join = (room: RoomState, id: string, name: string, now = T0) => {
+  room.connect(id);
+  return room.handle(id, { type: "join", name, partner: mon(74), profile: { color: null } }, now);
+};
+
+test("joins and name changes go in everyone's chat log, in order", () => {
+  const room = twoPlayerRoom();
+  room.handle("misty", { type: "rename", name: "Kasumi" }, T0 + 1000);
+  join(room, "brock", "Brock", T0 + 2000);
+  assert.deepEqual(chatLog(room), ["lobby: Ash joined", "lobby: Misty joined", "lobby: Misty→Kasumi", "lobby: Brock joined"]);
+  const brock = room.snapshotFor("misty", T0).events?.at(-1);
+  assert.deepEqual(brock?.kind === "join" && [brock.playerId, brock.partner?.id], ["brock", 74], "joins carry the partner");
+
+  // Joining again isn't news, and neither is "renaming" to the same name.
+  join(room, "brock", "Brock", T0 + 3000);
+  room.handle("brock", { type: "rename", name: "Brock" }, T0 + 3000);
+  assert.equal(chatLog(room).length, 4);
+  // A rejected rename leaves no trace.
+  room.connect("gary");
+  room.handle("gary", { type: "rename", name: "Blue" }, T0 + 3000);
+  assert.equal(chatLog(room).length, 4);
+});
+
+test("editing a name letter by letter shows up as one change", () => {
+  const room = twoPlayerRoom();
+  for (const [name, at] of [["As", 0], ["A", 400], ["R", 900], ["Re", 1200], ["Red", 1500]] as const) {
+    room.handle("ash", { type: "rename", name }, T0 + at);
+  }
+  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red"]);
+
+  // Typing back to the name you started with takes the line away again.
+  room.handle("ash", { type: "rename", name: "Ash" }, T0 + 2000);
+  assert.deepEqual(chatLog(room).slice(2), []);
+
+  // A change long after the last one is news of its own...
+  room.handle("ash", { type: "rename", name: "Red" }, T0 + 3000);
+  room.handle("ash", { type: "rename", name: "Blue" }, T0 + 3000 + RENAME_MERGE_MS);
+  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red", "lobby: Red→Blue"]);
+  // ...and so is one after something else happened in between.
+  room.handle("misty", { type: "rename", name: "Kasumi" }, T0 + 3000 + RENAME_MERGE_MS);
+  room.handle("ash", { type: "rename", name: "Green" }, T0 + 3000 + RENAME_MERGE_MS);
+  assert.deepEqual(chatLog(room).slice(4), ["lobby: Misty→Kasumi", "lobby: Blue→Green"]);
+});
+
+test("the chat log notes the round things happened in, and starts over each game", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  assert.deepEqual(chatLog(room), [], "a new game clears the lobby's log, as everyone's screen does");
+  join(room, "brock", "Brock", T0);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [1], T0 + 500);
+  answer(room, "misty", [1], T0 + 500);
+  room.advance(room.nextWakeAt()!);
+  room.handle("ash", { type: "rename", name: "Red" }, T0 + 5000);
+  assert.deepEqual(chatLog(room), ["0: Brock joined", "1: Ash→Red"]);
+
+  // Play out the rest of the game; anything after the last round is back in the lobby.
+  let now = T0 + 5000;
+  for (let round = 1; round < 5; round += 1) {
+    ready(room, "ash", now, round);
+    ready(room, "misty", now, round);
+    answer(room, "ash", [round * 10 + 1], now, round);
+    answer(room, "misty", [round * 10 + 1], now, round);
+    now = room.nextWakeAt()!;
+    room.advance(now);
+  }
+  assert.equal(room.snapshotFor("ash", now).game?.phase, "finished");
+  room.handle("misty", { type: "rename", name: "Kasumi" }, now);
+  assert.deepEqual(chatLog(room, now).at(-1), "lobby: Misty→Kasumi");
+});
+
+test("the chat log keeps only the latest lines", () => {
+  const room = twoPlayerRoom();
+  for (let n = 0; n < MAX_EVENTS + 5; n += 1) {
+    room.handle(n % 2 ? "ash" : "misty", { type: "rename", name: `Name ${n}` }, T0 + n);
+  }
+  const events = room.snapshotFor("ash", T0).events ?? [];
+  assert.equal(events.length, MAX_EVENTS);
+  const last = events.at(-1);
+  assert.equal(last?.kind === "rename" && last.to, `Name ${MAX_EVENTS + 4}`);
+  assert.equal(new Set(events.map((event) => event.id)).size, MAX_EVENTS, "every line has its own id");
 });
 
 test("names are at most 10 characters, counted the way people count them", () => {

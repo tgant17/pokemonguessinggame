@@ -50,6 +50,17 @@ export type RoomGame = {
   myAnswer: PlayerAnswer | null;
 };
 
+// Something that happened in the room, shown to everyone as a line in the chat log.
+export type RoomEventDetail =
+  | { kind: "join"; playerId: string; name: string; partner: PokemonSprite | null }
+  | { kind: "rename"; playerId: string; from: string; to: string };
+
+export type RoomEvent = RoomEventDetail & {
+  id: number;
+  // The round of the running game it happened during, or null if it happened between games.
+  round: number | null;
+};
+
 export type RoomSnapshot = {
   type: "room";
   code: string;
@@ -57,6 +68,9 @@ export type RoomSnapshot = {
   hostId: string | null;
   players: PlayerInfo[];
   game: RoomGame | null;
+  // Joins and renames since the current game started (or since the room opened), oldest first.
+  // Missing from room servers that predate the chat log.
+  events?: RoomEvent[];
 };
 
 export type ServerMessage = RoomSnapshot | { type: "error"; message: string };

@@ -1,7 +1,7 @@
 "use client";
 
 import usePartySocket from "partysocket/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { GameSettings } from "@/lib/engine";
 import type { PokemonSprite, RoundData } from "@/lib/game";
 import { PreviewRoom } from "@/lib/previewRoom";
@@ -21,6 +21,7 @@ const partyHost = () => CONFIGURED_HOST ?? (typeof window === "undefined" ? "" :
 
 const PLAYER_ID_KEY = "pgg-player-id";
 const PLAYER_NAME_KEY = "pgg-player-name";
+const LAST_ROOM_KEY = "pgg-last-room";
 
 // Storage can be unavailable (private mode, blocked cookies), so every access is guarded.
 const readStorage = (key: string) => {
@@ -37,6 +38,11 @@ const writeStorage = (key: string, value: string) => {
     // Not fatal: the player just gets a new id next visit.
   }
 };
+// The last room code joined on this device. It's only read to make a first guess, so nothing listens for changes.
+const ignoreChanges = () => () => {};
+const readLastRoom = () => readStorage(LAST_ROOM_KEY);
+// The server can't see storage; undefined there means "can't tell yet".
+const lastRoomOnServer = () => undefined;
 const newId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -61,6 +67,9 @@ export type RoomController = GameController & {
   room: RoomInfo | null;
   connected: boolean;
   error: string | null;
+  // Whether this device joined this room before, which says whether you're probably still in it until the
+  // room answers (say, after a refresh). Null in the server render, where that can't be told.
+  joinedBefore: boolean | null;
   // Your name as last used on this device ("" if none yet). Solo play shows it too.
   savedName: string;
   saveName: (name: string) => void;
@@ -95,6 +104,9 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     writeStorage(PLAYER_NAME_KEY, name);
     setSavedName(name);
   }, []);
+
+  const lastRoom = useSyncExternalStore(ignoreChanges, readLastRoom, lastRoomOnServer);
+  const joinedBefore = lastRoom === undefined ? null : !!code && lastRoom === code;
 
   const [received, setReceived] = useState<Received | null>(null);
   const [connected, setConnected] = useState(false);
@@ -230,9 +242,10 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     (name: string, partner: PokemonSprite, profile: Profile) => {
       setError(null);
       saveName(name);
+      if (code) writeStorage(LAST_ROOM_KEY, code);
       send({ type: "join", name, partner, profile });
     },
-    [send, saveName],
+    [send, saveName, code],
   );
 
   const rename = useCallback((name: string) => send({ type: "rename", name }), [send]);
@@ -256,6 +269,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     room,
     connected,
     error,
+    joinedBefore,
     savedName,
     saveName,
     join,

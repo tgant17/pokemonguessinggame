@@ -3,30 +3,48 @@
 import Image from "next/image";
 import { useEffect, useId, useState, type FormEvent } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
-import { SketchFrame, SketchIcon } from "@/components/sketch";
-import { PARTNER_CHOICE_COUNT, drawPartnerChoices, formatName, type PokemonSprite } from "@/lib/game";
+import { ColorWheel } from "@/components/NameTagEditor";
+import { NameTag, SketchFrame, SketchIcon } from "@/components/sketch";
+import { PARTNER_CHOICE_COUNT, drawPartnerChoices, formatName, pokemonIconUrl, type PokemonSprite } from "@/lib/game";
 import { randomMashupName } from "@/lib/mashup";
 import { MAX_NAME_LENGTH, clampName, cleanName, nameLength } from "@/lib/protocol";
 
 type JoinRoomFormProps = {
   roomCode: string;
   pokemonNames: string[];
-  // The name being typed. The room page owns it so the name tag above the form can preview it.
-  name: string;
-  onNameChange: (name: string) => void;
+  // The name last used on this device, to start the name box with ("" if none yet).
+  savedName: string;
+  color: string | null;
+  onColorChange: (hex: string) => void;
+  // A short line about who's in the room, shown beside the name tag preview.
+  roomNote: string;
   connected: boolean;
   onJoin: (name: string, partner: PokemonSprite) => void;
 };
 
 /**
- * Joining a room: write a name (up to 10 characters), or roll the die for two Pokémon mashed together,
- * and pick a partner from three random Pokémon.
+ * Making your name tag to join a room: a name (up to 10 characters, or roll the die for two Pokémon mashed
+ * together), an aura color, and a partner picked from three random Pokémon. The tag preview sits where your tag
+ * will be on the game screen, so it carries straight over.
  * The choices stay put if joining fails (say the room is full), so the player can just try again.
  */
-export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, connected, onJoin }: JoinRoomFormProps) {
+export function JoinRoomForm({
+  roomCode,
+  pokemonNames,
+  savedName,
+  color,
+  onColorChange,
+  roomNote,
+  connected,
+  onJoin,
+}: JoinRoomFormProps) {
   const inputId = useId();
   const counterId = useId();
+  const auraLabelId = useId();
   const partnerLabelId = useId();
+  // Null until the player types, so the saved name (which loads after mount) fills the box.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const name = nameDraft ?? clampName(savedName);
   const [choices, setChoices] = useState<PokemonSprite[] | null>(null);
   const [drawFailed, setDrawFailed] = useState(false);
   const [drawAttempt, setDrawAttempt] = useState(0);
@@ -57,7 +75,7 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
     const rolled = randomMashupName(pokemonNames);
     if (!rolled) return;
     setRolls((count) => count + 1);
-    onNameChange(rolled.name);
+    setNameDraft(rolled.name);
   };
 
   const finalName = cleanName(name);
@@ -73,15 +91,37 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
 
   return (
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
-      <div className="flex flex-col gap-2">
+      <div className="flex items-center justify-between gap-3">
+        <NameTag
+          label={finalName ?? "You"}
+          color={color}
+          icon={partner ? pokemonIconUrl(partner.id) : null}
+          size="md"
+          className="max-w-[60%]"
+        />
+        <p className="text-right text-sm leading-tight text-ink-soft">
+          Room {roomCode}
+          {roomNote && (
+            <>
+              <br />
+              {roomNote}
+            </>
+          )}
+        </p>
+      </div>
+
+      {/* Name and aura share a row: labels lined up on top, and beside the wheel the name box with the die under
+          it (next to the box, the die would squeeze it too narrow for ten letters on a phone). */}
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2">
         <SectionLabel htmlFor={inputId}>Your name</SectionLabel>
-        <div className="flex gap-2">
-          <div className="relative isolate flex min-w-0 flex-1 items-center gap-2 rounded-[14px] pl-3.5 pr-3 focus-within:outline-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
+        <SectionLabel id={auraLabelId}>Your aura</SectionLabel>
+        <div className="flex min-w-0 flex-col gap-2">
+          <div className="relative isolate flex items-center gap-2 rounded-[14px] pl-3.5 pr-3 focus-within:outline-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
             <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
             <input
               id={inputId}
               value={name}
-              onChange={(event) => onNameChange(clampName(event.target.value))}
+              onChange={(event) => setNameDraft(clampName(event.target.value))}
               placeholder="Ash"
               autoComplete="nickname"
               autoCapitalize="words"
@@ -102,16 +142,17 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
             type="button"
             onClick={rollName}
             disabled={!pokemonNames.length}
-            aria-label="Random name"
-            title="Random name: two Pokémon mashed together"
-            className={`${choiceButtonClass(false)} flex h-12 w-12 shrink-0 items-center justify-center disabled:text-ink-faint`}
+            title="Two Pokémon mashed together"
+            className={`${choiceButtonClass(false)} flex h-10 items-center gap-2 self-start pl-2.5 pr-3.5 text-sm disabled:text-ink-faint`}
           >
-            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
+            <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
             <span key={rolls} className={`flex ${rolls ? "dice-roll" : ""}`}>
-              <SketchIcon name="dice" className="h-6 w-6" strokeWidth={2.2} />
+              <SketchIcon name="dice" className="h-5 w-5" strokeWidth={2.2} />
             </span>
+            Random name
           </button>
         </div>
+        <ColorWheel color={color} onChange={onColorChange} size={96} labelledBy={auraLabelId} />
       </div>
 
       <div className="flex flex-col gap-2">

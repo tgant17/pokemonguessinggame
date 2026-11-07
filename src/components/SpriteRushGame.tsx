@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
+import { JoinRoomScreen } from "@/components/JoinRoomScreen";
 import {
   NameTag,
   SketchFrame,
@@ -30,7 +31,7 @@ import {
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
-import { clampName, cleanName, type RoomEvent } from "@/lib/protocol";
+import { cleanName, type RoomEvent } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 import { NameTagEditor } from "@/components/NameTagEditor";
 import { useProfile } from "@/hooks/useProfile";
@@ -673,11 +674,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         {isSetup && history.length === 0 && (
           <>
             <Notice>
-              {room && !room.joined
-                ? "Make a name tag below to join"
-                : room && !room.isHost
-                  ? "You're in! The host will start soon"
-                  : "Welcome! Set up a game below"}
+              {room && !room.isHost ? "You're in! The host will start soon" : "Welcome! Set up a game below"}
             </Notice>
             <Message tag={HOST_TAG} className="flex items-start gap-3">
               <SketchIcon name="pokeball" className="mt-1 h-14 w-14 sm:h-16 sm:w-16" strokeWidth={2} draw />
@@ -1027,10 +1024,15 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   // --- Multiplayer rooms ---
 
-  // Null until the player types, so the name saved from a previous room fills the field.
-  const [nameDraft, setNameDraft] = useState<string | null>(null);
-  const joinName = nameDraft ?? clampName(roomGame.savedName);
-  const joining = !!room && !room.joined;
+  // You make your name tag on a page of its own before the game screen. Until the room answers, go by whether
+  // this device joined it before, so a refresh mid-game goes straight back to the game instead of flashing
+  // the join page. The server render can't tell either way, so it just says it's connecting.
+  let joinScreen: "join" | "connecting" | null = null;
+  if (roomCode && multiplayerAvailable) {
+    if (room) joinScreen = room.joined ? null : "join";
+    else if (roomGame.joinedBefore === null) joinScreen = "connecting";
+    else if (!roomGame.joinedBefore) joinScreen = "join";
+  }
   const [copied, setCopied] = useState(false);
   // Built after mount: the server doesn't know the site's address, and both renders must match.
   const [roomUrl, setRoomUrl] = useState("");
@@ -1064,17 +1066,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       // Clipboard can be blocked; the link is on screen to copy by hand.
     }
   };
-
-  const renderJoinForm = () => (
-    <JoinRoomForm
-      roomCode={roomCode ?? ""}
-      pokemonNames={pokemonNames}
-      name={joinName}
-      onNameChange={setNameDraft}
-      connected={roomGame.connected}
-      onJoin={(name, partner) => roomGame.join(name, partner, profile)}
-    />
-  );
 
   const renderWaitingForHost = () => (
     <div className="flex flex-col items-center gap-2 py-6 text-center">
@@ -1191,7 +1182,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   const bottomPrompt = () => {
     if (gameState === "loading") return "Loading…";
-    if (joining) return "Make your name tag";
     if (room && isSetup && !room.isHost) return `Room ${room.code}`;
     if (isSetup) return "Set up a game";
     if (roundRevealed) return "Next round…";
@@ -1209,6 +1199,31 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       ))}
     </div>
   );
+
+  if (roomCode && joinScreen) {
+    return (
+      <JoinRoomScreen error={errorMessage ?? roomGame.error}>
+        {joinScreen === "join" && (
+          <JoinRoomForm
+            roomCode={roomCode}
+            pokemonNames={pokemonNames}
+            savedName={roomGame.savedName}
+            color={profile.color}
+            onColorChange={(color) => setProfile({ color })}
+            roomNote={
+              !room
+                ? ""
+                : room.players.length === 0
+                  ? "No one's here yet"
+                  : `${room.players.length} player${room.players.length === 1 ? "" : "s"} here`
+            }
+            connected={roomGame.connected}
+            onJoin={(name, partner) => roomGame.join(name, partner, profile)}
+          />
+        )}
+      </JoinRoomScreen>
+    );
+  }
 
   return (
     <main className="min-h-screen px-4 pb-12 pt-8 text-ink sm:pt-10">
@@ -1250,11 +1265,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <NameTagEditor
-                label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
+                label={currentTag.label}
                 icon={currentTag.icon}
-                // While joining, this edits the same name as the join form below it.
-                name={joining ? joinName : roomGame.savedName}
-                onNameChange={joining ? setNameDraft : roomGame.saveName}
+                name={roomGame.savedName}
+                onNameChange={roomGame.saveName}
                 color={profile.color}
                 onColorChange={(color) => setProfile({ color })}
                 className="max-w-[65%]"
@@ -1263,8 +1277,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             </div>
             {gameState === "loading" ? (
               renderAnswers()
-            ) : room && !room.joined ? (
-              renderJoinForm()
             ) : isSetup ? (
               room && !room.isHost ? renderWaitingForHost() : renderGameSetup()
             ) : (

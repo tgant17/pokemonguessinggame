@@ -227,6 +227,26 @@ test("someone joining mid-game watches until the next game", () => {
   assert.equal(room.snapshotFor("brock", T0).game?.phase, "playing", "the watcher doesn't hold up the clock");
 });
 
+test("only the host can change the game options, and everyone sees them", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.snapshotFor("misty", T0).settings, null, "no options until the host's page sends them");
+  const hard: GameSettings = { mode: "hard", totalRounds: 10, questionTime: 12, winnerTakesAll: true };
+  assert.equal(room.handle("misty", { type: "settings", settings: hard }, T0), "Only the host can change the game options.");
+  assert.equal(room.snapshotFor("ash", T0).settings, null);
+  assert.equal(room.handle("ash", { type: "settings", settings: hard }, T0), null);
+  assert.deepEqual(room.snapshotFor("misty", T0).settings, hard);
+
+  // Whoever takes over hosting picks from then on.
+  room.handle("ash", { type: "makeHost", playerId: "misty" }, T0);
+  assert.equal(room.handle("ash", { type: "settings", settings }, T0), "Only the host can change the game options.");
+  assert.equal(room.handle("misty", { type: "settings", settings }, T0), null);
+  assert.deepEqual(room.snapshotFor("ash", T0).settings, settings);
+
+  // Starting a game shows the options it was started with, ready for a rematch.
+  room.handle("misty", { type: "start", settings: hard, rounds: makeRounds(10, 6, 2) }, T0);
+  assert.deepEqual(room.snapshotFor("ash", T0).settings, hard);
+});
+
 test("a game can't be started twice, and a finished game can be replayed", () => {
   const room = twoPlayerRoom();
   start(room);
@@ -275,6 +295,10 @@ test("client messages are validated", () => {
   const stray = makeRounds(5);
   stray[0].answers = [mon(99)];
   assert.equal(parse({ ...good, rounds: stray }), null, "answers must be options");
+
+  assert.deepEqual(parse({ type: "settings", settings }), { type: "settings", settings });
+  assert.equal(parse({ type: "settings", settings: { ...settings, questionTime: 600 } }), null, "options are checked like a start's");
+  assert.equal(parse({ type: "settings" }), null);
 
   assert.deepEqual(parse({ type: "answer", gameId: 1, roundIndex: 0, pickedIds: [3] }), {
     type: "answer",

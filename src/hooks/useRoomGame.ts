@@ -201,6 +201,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
           ? game.settings.questionTime
           : (game.frozenSecondsLeft ?? 0);
     return {
+      gameId: game.gameId,
       settings: game.settings,
       roundIndex: game.roundIndex,
       round: game.round,

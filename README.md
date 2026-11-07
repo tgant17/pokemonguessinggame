@@ -7,6 +7,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Loads Pokémon names from a local cache (`public/pokemon-list.json`) so autocomplete works offline.
 - Prefetches all sprites for the round up front, preventing mid-round loading hitches.
 - Silhouette effect while guessing, then reveals the sprite after your answer.
+- Every game opens with a hand-drawn 3-2-1 countdown, drawn in the first round's card right where the silhouette is about to appear. The silhouette and its answer options stay hidden until "Go!", when the clock starts.
 - Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds).
 - Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (10-second clock by default).
 - Legendary mode: three stacked silhouettes, pick all three from 8 options (15-second clock by default).
@@ -42,7 +43,7 @@ Then pick **Multiplayer** on the home page and use **Create a room**. In develop
 
 - Each room code gets its own Durable Object, a single server instance that runs the game for everyone in it.
 - The host's browser picks the Pokémon (as in solo play) and sends the rounds to the server. From then on the server runs the clock and scores every answer with the same engine (`src/lib/engine.ts`) solo play uses, so all players see the same Pokémon and the same countdown.
-- Each round's clock starts once everyone's sprites have loaded (or after 4 seconds). Answers stay hidden until everyone still connected has answered or time runs out, so a player who leaves doesn't hold up the round. Someone who disconnects still counts as playing for 3 seconds, so refreshing the page doesn't end the round without them.
+- Each round's clock starts once everyone's sprites have loaded (or after 4 seconds). Players watch the 3-2-1 countdown at the same time, and the first round's clock waits for it to finish, so that round gives up on slow players after 7 seconds instead. Answers stay hidden until everyone still connected has answered or time runs out, so a player who leaves doesn't hold up the round. Someone who disconnects still counts as playing for 3 seconds, so refreshing the page doesn't end the round without them.
 - Players are remembered by an id in the browser's local storage, so refreshing the page keeps your seat, score and any answer you'd locked in. People who join mid-game watch (and see each reveal) until the next game.
 - The first player to join hosts and picks the settings. Everyone else sees the same options update as the host picks them, grayed out so only the host can change them. If they're away, the next connected player can start; between games the host can hand hosting to someone else with **Make host**.
 - Players who have left are dropped from the list when the next game starts (or when the room is full and someone new joins). A room that everyone has left is wiped after 5 minutes.

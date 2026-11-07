@@ -74,6 +74,10 @@ export const MODE_CONFIG: Record<
 
 export const ROUND_OPTIONS = [5, 10, 25];
 
+// Every game opens with a hand-drawn 3-2-1 countdown, one second per number, before the first round's
+// clock starts. Rooms need to know its length too, so they don't give up waiting on players still watching it.
+export const INTRO_COUNTDOWN_MS = 3000;
+
 // Correct answers score by which quarter of the clock they land in:
 // first quarter (fastest) = 4, then 3, 2, and 1 in the final quarter.
 // Wrong answers and time-outs score nothing but never take points away.

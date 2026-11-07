@@ -2,7 +2,7 @@
 // party/room.ts wires this to WebSockets; everything here is plain logic so it can be unit-tested.
 
 import { closeRound, createGame, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
-import type { PokemonSprite } from "./game.ts";
+import { INTRO_COUNTDOWN_MS, type PokemonSprite } from "./game.ts";
 import {
   MAX_PLAYERS,
   type ClientMessage,
@@ -14,6 +14,7 @@ import {
 import type { Profile } from "./profile.ts";
 
 // How long a new round waits for everyone's sprites to load before starting the clock anyway.
+// The first round also waits out the 3-2-1 countdown, since players only say they're ready once it ends.
 export const READY_TIMEOUT_MS = 4000;
 // How long a player who disconnects still counts as in the round, so a page refresh or a brief
 // network drop doesn't end the round (or start the clock) without them.
@@ -180,12 +181,7 @@ export class RoomState {
     if (!this.game) return null;
     if (this.game.phase === "reveal") return this.game.revealEndsAt;
     if (this.game.phase === "finished") return null;
-    const deadline =
-      this.game.phase === "waiting"
-        ? this.waitingSince !== null
-          ? this.waitingSince + READY_TIMEOUT_MS
-          : null
-        : this.game.roundEndsAt;
+    const deadline = this.game.phase === "waiting" ? this.readyDeadline() : this.game.roundEndsAt;
     // Also wake when someone's rejoin grace runs out, since that can mean everyone left is done.
     const graceEnds = this.game.playerIds
       .map((id) => this.awaySince.get(id))
@@ -271,6 +267,12 @@ export class RoomState {
     this.waitingSince = now;
   }
 
+  // When a waiting round starts its clock even if not everyone is ready.
+  private readyDeadline(): number | null {
+    if (!this.game || this.waitingSince === null) return null;
+    return this.waitingSince + READY_TIMEOUT_MS + (this.game.roundIndex === 0 ? INTRO_COUNTDOWN_MS : 0);
+  }
+
   private isPlaying(id: string) {
     return !!this.game && this.game.phase !== "finished" && this.game.playerIds.includes(id);
   }
@@ -290,7 +292,8 @@ export class RoomState {
 
   private everyoneReady(now: number) {
     if (!this.game) return false;
-    if (this.waitingSince !== null && now >= this.waitingSince + READY_TIMEOUT_MS) return true;
+    const deadline = this.readyDeadline();
+    if (deadline !== null && now >= deadline) return true;
     const present = this.game.playerIds.filter((id) => this.isPresent(id, now));
     return present.length > 0 && present.every((id) => this.ready.has(id));
   }

@@ -68,6 +68,9 @@ export type RoomSnapshot = {
   hostId: string | null;
   players: PlayerInfo[];
   game: RoomGame | null;
+  // The options the host has picked for the next game, so everyone else can see them before it starts.
+  // Null until the host's page sends them; missing from room servers that predate shared options.
+  settings?: GameSettings | null;
   // Joins and renames since the current game started (or since the room opened), oldest first.
   // Missing from room servers that predate the chat log.
   events?: RoomEvent[];
@@ -79,6 +82,7 @@ export type ClientMessage =
   | { type: "join"; name: string; partner: PokemonSprite | null; profile: Profile }
   | { type: "profile"; profile: Profile }
   | { type: "rename"; name: string }
+  | { type: "settings"; settings: GameSettings }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
   | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] }
@@ -171,6 +175,10 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
     case "rename": {
       const name = cleanName(data.name);
       return name ? { type: "rename", name } : null;
+    }
+    case "settings": {
+      const settings = parseSettings(data.settings);
+      return settings ? { type: "settings", settings } : null;
     }
     case "start": {
       const settings = parseSettings(data.settings);

@@ -3,7 +3,14 @@
 
 import { closeRound, createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
 import type { PokemonSprite } from "./game.ts";
-import { MAX_PLAYERS, type ClientMessage, type PlayerInfo, type RoomSnapshot } from "./protocol.ts";
+import {
+  MAX_PLAYERS,
+  type ClientMessage,
+  type PlayerInfo,
+  type RoomEvent,
+  type RoomEventDetail,
+  type RoomSnapshot,
+} from "./protocol.ts";
 import type { Profile } from "./profile.ts";
 
 // How long a new round waits for everyone's sprites to load before starting the clock anyway.
@@ -11,6 +18,11 @@ export const READY_TIMEOUT_MS = 4000;
 // How long a player who disconnects still counts as in the round, so a page refresh or a brief
 // network drop doesn't end the round (or start the clock) without them.
 export const REJOIN_GRACE_MS = 3000;
+// The chat log keeps this many joins and renames at most; older ones drop off the top.
+export const MAX_EVENTS = 50;
+// Name changes by one player this close together count as one, so editing a name letter by letter
+// shows up as "Ash is now Red" rather than a line per keystroke.
+export const RENAME_MERGE_MS = 15_000;
 
 type Player = { id: string; name: string; partner: PokemonSprite | null; profile: Profile };
 
@@ -29,6 +41,10 @@ export class RoomState {
   private waitingSince: number | null = null;
   // When each disconnected player's last connection closed.
   private awaySince = new Map<string, number>();
+  // Joins and renames for the chat log, oldest first. Each game starts a fresh log, like everyone's screen does.
+  private events: RoomEvent[] = [];
+  private nextEventId = 1;
+  private lastEventAt = 0;
 
   constructor(code: string) {
     this.code = code;
@@ -77,6 +93,9 @@ export class RoomState {
         }
         this.players.set(id, { id, name: message.name, partner: message.partner, profile: message.profile });
         if (!this.hostId) this.hostId = id;
+        // Joining again (say, a double-tapped button) isn't news, unless it changed the name.
+        if (existing) this.logRename(id, existing.name, message.name, now);
+        else this.log({ kind: "join", playerId: id, name: message.name, partner: message.partner }, now);
         break;
       }
       case "profile": {
@@ -89,6 +108,7 @@ export class RoomState {
         const player = this.players.get(id);
         if (!player) return "Join the room first.";
         this.players.set(id, { ...player, name: message.name });
+        this.logRename(id, player.name, message.name, now);
         break;
       }
       case "start": {
@@ -103,6 +123,7 @@ export class RoomState {
         const playerIds = [...this.players.keys()].filter((playerId) => this.isConnected(playerId));
         this.game = createGame(message.settings, message.rounds, playerIds);
         this.gameId += 1;
+        this.events = [];
         this.enterWaiting(now);
         break;
       }
@@ -200,7 +221,39 @@ export class RoomState {
               myAnswer: revealed ? (game.answers[you] ?? null) : null,
             }
           : null,
+      events: [...this.events],
     };
+  }
+
+  // The round a chat log line belongs to: the running game's current round, or null between games.
+  private logRound(): number | null {
+    return this.game && this.game.phase !== "finished" ? this.game.roundIndex : null;
+  }
+
+  private log(detail: RoomEventDetail, now: number) {
+    this.events.push({ ...detail, id: this.nextEventId, round: this.logRound() });
+    this.nextEventId += 1;
+    if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
+    this.lastEventAt = now;
+  }
+
+  private logRename(id: string, from: string, to: string, now: number) {
+    if (from === to) return;
+    const last = this.events[this.events.length - 1];
+    if (
+      last?.kind === "rename" &&
+      last.playerId === id &&
+      last.round === this.logRound() &&
+      now - this.lastEventAt < RENAME_MERGE_MS
+    ) {
+      // Still the same edit: keep one line from the name they started with to the latest one,
+      // or none at all if they've typed their way back to where they started.
+      if (last.from === to) this.events.pop();
+      else this.events[this.events.length - 1] = { ...last, to };
+      this.lastEventAt = now;
+      return;
+    }
+    this.log({ kind: "rename", playerId: id, from, to }, now);
   }
 
   private enterWaiting(now: number) {

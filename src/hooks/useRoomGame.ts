@@ -5,7 +5,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameSettings } from "@/lib/engine";
 import type { PokemonSprite, RoundData } from "@/lib/game";
 import type { Profile } from "@/lib/profile";
-import type { ClientMessage, PlayerInfo, RoomSnapshot, ServerMessage } from "@/lib/protocol";
+import type { ClientMessage, PlayerInfo, RoomEvent, RoomSnapshot, ServerMessage } from "@/lib/protocol";
 import type { GameController, GameView, RoundResultEvent } from "./useLocalGame";
 
 // Where the room server (party/room.ts) runs. Set NEXT_PUBLIC_PARTY_HOST to the deployed Worker's host
@@ -49,6 +49,8 @@ export type RoomInfo = {
   inGame: boolean;
   // Changes each time the host starts a new game.
   gameId: number | null;
+  // Joins and renames for the chat log since the current game started, oldest first.
+  events: RoomEvent[];
 };
 
 export type RoomController = GameController & {
@@ -180,6 +182,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       me,
       inGame: !!snapshot.game?.inGame,
       gameId: snapshot.game?.gameId ?? null,
+      events: snapshot.events ?? [],
     };
   }, [snapshot, me]);
 

@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
 import {
@@ -28,7 +28,7 @@ import {
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
-import { clampName, cleanName, type PlayerInfo } from "@/lib/protocol";
+import { clampName, cleanName, type RoomEvent } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 import { NameTagEditor } from "@/components/NameTagEditor";
 import { useProfile } from "@/hooks/useProfile";
@@ -325,7 +325,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     if (!feed) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     feed.scrollTo({ top: feed.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
-  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, room?.players.length]);
+  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, room?.events.length]);
 
   const canAnswer = view?.phase === "playing" && status === "idle" && !view.locked && spritesReady;
 
@@ -599,23 +599,61 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  // Each player in a room announces their partner in the chat log before the first game.
-  const renderPartnerRow = (player: PlayerInfo) =>
-    player.partner && (
-      <div key={`partner-${player.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
-        <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
-        <NameTag label={player.name} />
-        <span className="relative h-9 w-9 shrink-0">
-          <Image src={player.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
-        </span>
-        <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
-          I choose you, {formatName(player.partner.name)}!
-        </p>
-      </div>
+  // Joins and renames in a room, as lines in the chat log. Each new player also calls out their partner.
+  const renderRoomEvent = (event: RoomEvent) => {
+    if (event.kind === "rename") {
+      return (
+        <Notice key={`event-${event.id}`}>
+          <span className="text-ink">{event.from}</span> is now <span className="text-ink">{event.to}</span>
+        </Notice>
+      );
+    }
+    // Your own tag shows the color you've picked right away, before the room echoes it back.
+    const color =
+      event.playerId === room?.you
+        ? profile.color
+        : room?.players.find((player) => player.id === event.playerId)?.profile.color;
+    return (
+      <Fragment key={`event-${event.id}`}>
+        <Notice>
+          {/* Someone joining mid-game watches until the next one. */}
+          <span className="text-ink">{event.name}</span> joined{event.round !== null && " to watch"}
+        </Notice>
+        {event.partner && (
+          <div className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
+            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
+            <NameTag label={event.name} color={color} />
+            <span className="relative h-9 w-9 shrink-0">
+              <Image src={event.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
+            </span>
+            <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
+              I choose you, {formatName(event.partner.name)}!
+            </p>
+          </div>
+        )}
+      </Fragment>
     );
+  };
 
   const renderFeed = () => {
     const pastRounds = history.filter((record) => !(gameState === "playing" && record.round === currentRoundIndex));
+    // Joins and renames during a game sit just before the round they happened in; the rest came between games.
+    const roomEvents = room?.events ?? [];
+    const midGameEvents = roomEvents.filter((event) => event.round !== null);
+    const gameLog: ReactNode[] = [];
+    let nextEvent = 0;
+    const addEventsUpTo = (round: number) => {
+      while (nextEvent < midGameEvents.length && (midGameEvents[nextEvent].round ?? 0) <= round) {
+        gameLog.push(renderRoomEvent(midGameEvents[nextEvent]));
+        nextEvent += 1;
+      }
+    };
+    for (const record of pastRounds) {
+      addEventsUpTo(record.round);
+      gameLog.push(renderHistoryRow(record));
+    }
+    // Once the game is over, any left (rounds with no row, say after a refresh) go before the final result.
+    addEventsUpTo(gameState === "playing" ? currentRoundIndex : Infinity);
     return (
       <>
         {gameState === "loading" && !errorMessage && (
@@ -645,7 +683,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 </p>
               </div>
             </Message>
-            {room?.players.map(renderPartnerRow)}
           </>
         )}
         {history.length > 0 && (
@@ -653,7 +690,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             {MODE_CONFIG[mode].label} · {totalRounds} rounds · {questionTime}s{winnerTakesAll ? " · winner takes all" : ""}
           </Notice>
         )}
-        {pastRounds.map(renderHistoryRow)}
+        {gameLog}
         {renderCurrentRound()}
         {gameState === "finished" && (
           <Message tag={currentTag} className="text-center">
@@ -667,6 +704,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             </p>
           </Message>
         )}
+        {roomEvents.filter((event) => event.round === null).map(renderRoomEvent)}
         {isPreparing && (
           <Notice icon={<SketchIcon name="pokeball" className="h-4 w-4" strokeWidth={2} />}>
             Catching Pokémon<span className="blink">…</span>

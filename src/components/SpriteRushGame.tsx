@@ -22,6 +22,7 @@ import {
   formatName,
   joinNames,
   optionIconUrl,
+  showsOptionIcons,
   type GameMode,
   type PokemonSprite,
   type RoundOutcome,
@@ -29,7 +30,6 @@ import {
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
-import { useOptionIcons } from "@/hooks/useOptionIcons";
 import { clampName, cleanName, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 import { NameTagEditor } from "@/components/NameTagEditor";
@@ -157,7 +157,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<RoundRecord[]>([]);
-  const [showOptionIcons, setShowOptionIcons] = useOptionIcons();
   const feedRef = useRef<HTMLDivElement>(null);
   const { profile, setProfile } = useProfile();
 
@@ -244,8 +243,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   }, [winnerTakesAll]);
   const modeConfig = MODE_CONFIG[mode];
   const isMulti = modeConfig.answerCount > 1;
-  // Icons beside options are a Hard / Super Hard extra; Normal never shows them, even if the setting is on.
-  const iconsOn = showOptionIcons && isMulti;
   const timeLeft = playing?.timeLeft ?? questionTime;
   const score = view?.myScore ?? 0;
   const status: RoundStatus = view?.myAnswer?.outcome ?? "idle";
@@ -715,6 +712,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       );
     }
     const revealed = roundRevealed;
+    const iconsOn = showsOptionIcons(mode, currentRoundIndex, totalRounds);
     return (
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
         {currentRound.options.map((option) => {
@@ -944,30 +942,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       </div>
 
       {inRoom && renderExtras()}
-
-      {/* Option icons are only offered in the stacked modes (Hard and Super Hard). */}
-      {isMulti && (
-        <div className="flex flex-col gap-2">
-          <SectionLabel id="option-icons-label">Option icons</SectionLabel>
-          <div role="group" aria-labelledby="option-icons-label" className="flex gap-2">
-            {[false, true].map((value) => {
-              const selected = showOptionIcons === value;
-              return (
-                <button
-                  key={String(value)}
-                  type="button"
-                  onClick={() => setShowOptionIcons(value)}
-                  aria-pressed={selected}
-                  className={`${choiceButtonClass(selected)} min-w-[3.75rem] px-3 py-2 text-base`}
-                >
-                  <SketchFrame radius={12} wobble={0.8} strokeWidth={2.4} fill={selected ? "ink" : "paper"} />
-                  {value ? "On" : "Off"}
-                </button>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       <button
         type="button"

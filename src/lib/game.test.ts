@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  showsOptionIcons,
   MODE_CONFIG,
   PARTNER_CHOICE_COUNT,
   buildRounds,
@@ -91,4 +92,12 @@ test("drawPartnerChoices offers three different Pokémon", async () => {
 
 test("drawPartnerChoices returns null when sprites can't be fetched", async () => {
   assert.equal(await drawPartnerChoices(["a", "b", "c", "d"], async () => null), null);
+});
+
+test("option icons appear for the second half of Hard and Super Hard games only", () => {
+  const withIcons = (mode: "normal" | "hard" | "superHard", total: number) =>
+    Array.from({ length: total }, (_, i) => i).filter((i) => showsOptionIcons(mode, i, total));
+  assert.deepEqual(withIcons("hard", 10), [5, 6, 7, 8, 9]);
+  assert.deepEqual(withIcons("superHard", 5), [3, 4]);
+  assert.deepEqual(withIcons("normal", 10), []);
 });

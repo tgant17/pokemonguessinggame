@@ -601,7 +601,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 <p className="font-hand text-2xl font-bold leading-tight sm:text-[1.7rem]">
                   {room ? `Welcome to room ${room.code}!` : "Ready to test your Pokédex knowledge?"}
                 </p>
-                <p className="mt-1 font-hand text-lg leading-snug text-ink-soft sm:text-xl">
+                <p className="mt-1 font-hand text-xl leading-snug text-ink sm:text-[1.4rem]">
                   {room
                     ? `Share the invite link below. ${room.isHost ? "You're" : room.hostId ? `${hostName} is` : "The first player to join is"} hosting and starts the game once everyone's in.`
                     : instructions}

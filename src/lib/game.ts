@@ -174,6 +174,18 @@ export const buildRounds = async (
   return rounds;
 };
 
+// How many random Pokémon a player chooses their multiplayer partner from.
+export const PARTNER_CHOICE_COUNT = 3;
+
+// Draws distinct random Pokémon to offer as partners; null if their sprites couldn't be fetched.
+export const drawPartnerChoices = async (
+  pokemonNames: string[],
+  fetchSprite?: (name: string) => Promise<PokemonSprite | null>,
+): Promise<PokemonSprite[] | null> => {
+  const round = await buildRound(pokemonNames, PARTNER_CHOICE_COUNT, 0, fetchSprite);
+  return round?.options ?? null;
+};
+
 export const speedPoints = (timeLeft: number, questionTime: number) =>
   Math.max(1, Math.ceil((timeLeft / questionTime) * SPEED_TIERS));
 

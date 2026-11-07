@@ -1,19 +1,19 @@
 # Who's that Pokémon?
 
-Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round shows a hidden sprite; players must pick the correct Pokémon before the timer runs out (8 seconds by default, selectable before each game). You can run solo, or enable the multi-team mode (Red, Blue, Yellow, Green) to pass the device around and keep a running score.
+Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round shows a hidden sprite; players must pick the correct Pokémon before the timer runs out (8 seconds by default, selectable before each game). Play solo, or open an online room and play with friends on your own phones.
 
 ## Features
 
 - Loads Pokémon names from a local cache (`public/pokemon-list.json`) so autocomplete works offline.
 - Prefetches all sprites for the round up front, preventing mid-round loading hitches.
 - Silhouette effect while guessing, then reveals the sprite after your answer.
-- Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds), and persistent per-team scoreboards.
+- Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds).
 - Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (10-second clock by default).
 - Super Hard mode: three stacked silhouettes, pick all three from 8 options (15-second clock by default).
 - Speed scoring: the clock is split into quarters. A correct answer in the first quarter earns 4 points, then 3, 2, and 1 in the final quarter. Wrong answers and time-outs score 0 and never take points away.
 - In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
-- Mobile-friendly UI with dynamic theming based on the active team.
-- Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard.
+- Mobile-friendly UI.
+- Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard. Each player joins with a name tag (up to 10 characters) and a partner picked from three random Pokémon.
 - **Extras → Winner takes all** (rooms only, toggle under the main settings): the first player to answer fully right takes the whole pot (speed points × number of players) and the round ends there. Everyone else scores 0 that round. You get one guess each, with no partial credit in Hard and Super Hard. If nobody gets it, nobody scores.
 
 ## Getting started
@@ -45,6 +45,7 @@ Then use **Create a room** on the home page. In development the site looks for t
 - Players are remembered by an id in the browser's local storage, so refreshing the page keeps your seat, score and any answer you'd locked in. People who join mid-game watch (and see each reveal) until the next game.
 - The first player to join hosts and picks the settings. If they're away, the next connected player can start; between games the host can hand hosting to someone else with **Make host**.
 - Players who have left are dropped from the list when the next game starts (or when the room is full and someone new joins). A room that everyone has left is wiped after 5 minutes.
+- To join, each player writes a name of up to 10 characters and picks a partner from three random Pokémon. The partner shows next to their name in the players list and in the room's chat.
 - Rooms hold up to 12 players.
 
 ## Deployment (Vercel)

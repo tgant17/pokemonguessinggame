@@ -3,7 +3,7 @@
 import usePartySocket from "partysocket/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameSettings } from "@/lib/engine";
-import type { RoundData } from "@/lib/game";
+import type { PokemonSprite, RoundData } from "@/lib/game";
 import type { ClientMessage, PlayerInfo, RoomSnapshot, ServerMessage } from "@/lib/protocol";
 import type { GameController, GameView, RoundResultEvent } from "./useLocalGame";
 
@@ -55,7 +55,7 @@ export type RoomController = GameController & {
   connected: boolean;
   error: string | null;
   savedName: string;
-  join: (name: string) => void;
+  join: (name: string, partner: PokemonSprite) => void;
   startGame: (settings: GameSettings, rounds: RoundData[]) => void;
   makeHost: (playerId: string) => void;
 };
@@ -185,11 +185,11 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
   );
 
   const join = useCallback(
-    (name: string) => {
+    (name: string, partner: PokemonSprite) => {
       setError(null);
       writeStorage(PLAYER_NAME_KEY, name);
       setSavedName(name);
-      send({ type: "join", name });
+      send({ type: "join", name, partner });
     },
     [send],
   );

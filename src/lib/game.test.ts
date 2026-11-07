@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   MODE_CONFIG,
+  PARTNER_CHOICE_COUNT,
   buildRounds,
+  drawPartnerChoices,
   formatName,
   isFullyCorrect,
   joinNames,
@@ -77,4 +79,16 @@ test("winner takes all only counts a guess that names every Pokémon", () => {
   assert.equal(isFullyCorrect(answers, [1, 9]), false);
   assert.equal(isFullyCorrect([mon(1)], [1]), true);
   assert.equal(isFullyCorrect([mon(1)], [3]), false);
+});
+
+test("drawPartnerChoices offers three different Pokémon", async () => {
+  const names = Array.from({ length: 20 }, (_, i) => `mon-${i + 1}`);
+  const choices = await drawPartnerChoices(names, async (name) => mon(Number(name.split("-")[1])));
+  assert.ok(choices);
+  assert.equal(choices.length, PARTNER_CHOICE_COUNT);
+  assert.equal(new Set(choices.map((choice) => choice.id)).size, PARTNER_CHOICE_COUNT);
+});
+
+test("drawPartnerChoices returns null when sprites can't be fetched", async () => {
+  assert.equal(await drawPartnerChoices(["a", "b", "c", "d"], async () => null), null);
 });

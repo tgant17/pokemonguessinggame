@@ -33,7 +33,7 @@ const twoPlayerRoom = () => {
   const room = new RoomState("PKMN");
   for (const [id, name, partner] of [["ash", "Ash", mon(25)], ["misty", "Misty", mon(120)]] as const) {
     room.connect(id);
-    room.handle(id, { type: "join", name, partner }, T0);
+    room.handle(id, { type: "join", name, partner, profile: { color: null } }, T0);
   }
   return room;
 };
@@ -135,12 +135,12 @@ test("a full room makes space by dropping someone who has left", () => {
   const room = new RoomState("PKMN");
   for (let i = 0; i < 12; i += 1) {
     room.connect(`p${i}`);
-    room.handle(`p${i}`, { type: "join", name: `P${i}`, partner: null }, T0);
+    room.handle(`p${i}`, { type: "join", name: `P${i}`, partner: null, profile: { color: null } }, T0);
   }
   room.connect("late");
-  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null }, T0), "This room is full (12 players).");
+  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null, profile: { color: null } }, T0), "This room is full (12 players).");
   room.disconnect("p5", T0);
-  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null }, T0), null);
+  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null, profile: { color: null } }, T0), null);
   const names = room.snapshotFor("late", T0).players.map((p) => p.name);
   assert.equal(names.length, 12);
   assert.ok(!names.includes("P5") && names.includes("Late"));
@@ -219,7 +219,7 @@ test("someone joining mid-game watches until the next game", () => {
   const room = twoPlayerRoom();
   start(room);
   room.connect("brock");
-  room.handle("brock", { type: "join", name: "Brock", partner: null }, T0);
+  room.handle("brock", { type: "join", name: "Brock", partner: null, profile: { color: null } }, T0);
   const watching = room.snapshotFor("brock", T0);
   assert.equal(watching.game?.inGame, false);
   ready(room, "ash", T0);
@@ -249,10 +249,11 @@ test("client messages are validated", () => {
     type: "join",
     name: "Misty Wa",
     partner: mon(120),
+    profile: { color: null },
   });
   assert.equal(parse({ type: "join", name: "   " }), null);
   assert.equal((parse({ type: "join", name: "x".repeat(50) }) as { name: string }).name.length, 10, "names are cut to 10");
-  assert.deepEqual(parse({ type: "join", name: "Ash" }), { type: "join", name: "Ash", partner: null }, "partner is optional");
+  assert.deepEqual(parse({ type: "join", name: "Ash" }), { type: "join", name: "Ash", partner: null, profile: { color: null } }, "partner is optional");
   assert.equal(
     parse({ type: "join", name: "Ash", partner: { ...mon(25), spriteUrl: "https://evil.example/25.png" } }),
     null,
@@ -286,6 +287,42 @@ test("client messages are validated", () => {
   assert.equal(parse({ type: "makeHost", playerId: 7 }), null);
   assert.equal(parse({ type: "nope" }), null);
   assert.equal(parseClientMessage("{not json"), null);
+});
+
+test("players can set a name color, and everyone sees it", () => {
+  const room = twoPlayerRoom();
+  room.handle("ash", { type: "profile", profile: { color: "#ff8800" } }, T0);
+  const seenByMisty = room.snapshotFor("misty", T0).players.find((p) => p.id === "ash");
+  assert.deepEqual(seenByMisty?.profile, { color: "#ff8800" });
+
+  room.connect("gary");
+  assert.equal(room.handle("gary", { type: "profile", profile: { color: "#000000" } }, T0), "Join the room first.");
+
+  // Bad values from a browser are dropped rather than trusted.
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "profile", profile: { color: "url(x)" } })), {
+    type: "profile",
+    profile: { color: null },
+  });
+  assert.deepEqual(
+    (parseClientMessage(JSON.stringify({ type: "join", name: "Ash", profile: { color: "#ABCDEF" } })) as ClientMessage & { type: "join" }).profile,
+    { color: "#abcdef" },
+  );
+});
+
+test("players can change their name after joining, and everyone sees it", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.handle("ash", { type: "rename", name: "Red" }, T0), null);
+  const seenByMisty = room.snapshotFor("misty", T0).players.find((p) => p.id === "ash");
+  assert.equal(seenByMisty?.name, "Red");
+
+  room.connect("gary");
+  assert.equal(room.handle("gary", { type: "rename", name: "Blue" }, T0), "Join the room first.");
+
+  // The new name is cleaned the same way as a name typed when joining.
+  const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
+  assert.deepEqual(parse({ type: "rename", name: "  Brock \n of Pewter " }), { type: "rename", name: "Brock of P" });
+  assert.equal(parse({ type: "rename", name: "   " }), null);
+  assert.equal(parse({ type: "rename", name: 42 }), null);
 });
 
 test("names are at most 10 characters, counted the way people count them", () => {

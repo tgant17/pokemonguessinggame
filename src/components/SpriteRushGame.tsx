@@ -30,11 +30,20 @@ import { useLocalGame, type GameController, type RoundResultEvent } from "@/hook
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
 import { clampName, cleanName, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
+import { NameTagEditor } from "@/components/NameTagEditor";
+import { useProfile } from "@/hooks/useProfile";
+import type { Profile } from "@/lib/profile";
 
 
 
-// Who posted a message in the chat log: you, a room player, or the host.
-type Tag = { label: string; color?: string };
+// Who posted a message in the chat log: you, a room player, or the host. Players show their color and partner.
+type Tag = { label: string; color?: string | null; icon?: string | null };
+
+const profileTag = (label: string, profile: Profile, partner?: PokemonSprite | null): Tag => ({
+  label,
+  color: profile.color,
+  icon: partner?.spriteUrl ?? null,
+});
 
 // One finished round, kept in the chat log on the top screen.
 type RoundRecord = {
@@ -122,7 +131,7 @@ function Message({ tag, children, className = "" }: { tag: Tag; children: ReactN
     <div className={`message-in relative isolate mt-3 px-3 pb-3 pt-5 ${className}`}>
       <SketchFrame radius={16} wobble={1.1} strokeWidth={2.6} fill="ruled" draw />
       <span className="absolute -top-3 left-3">
-        <NameTag label={tag.label} color={tag.color} />
+        <NameTag label={tag.label} color={tag.color} icon={tag.icon} />
       </span>
       {children}
     </div>
@@ -147,6 +156,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<RoundRecord[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
+  const { profile, setProfile } = useProfile();
 
   // The round-result handler reads the tag through a ref, since in a room the tag (your name) comes from
   // the room hook, which itself needs the handler.
@@ -180,10 +190,36 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const room = inRoom ? roomGame.room : null;
   const game: GameController = inRoom ? roomGame : localGame;
   const { view } = game;
+  // Your name as saved on this device. It's shown right away, before a room echoes a change back.
+  const myName = cleanName(roomGame.savedName);
   const currentTag = useMemo<Tag>(
-    () => (inRoom ? { label: room?.me?.name ?? "You" } : SOLO_TAG),
-    [inRoom, room?.me?.name],
+    () =>
+      inRoom
+        ? profileTag(myName ?? room?.me?.name ?? "You", profile, room?.me?.partner)
+        : profileTag(myName ?? "You", profile),
+    [inRoom, myName, room?.me?.name, room?.me?.partner, profile],
   );
+
+  // Keep the room's copy of your color in step with what you pick here.
+  const { updateProfile } = roomGame;
+  const roomProfile = room?.me?.profile;
+  useEffect(() => {
+    if (!roomProfile || !profile.color) return;
+    if (roomProfile.color === profile.color) return;
+    // Dragging across the wheel changes the color many times a second; send only where it settles.
+    const timer = setTimeout(() => updateProfile(profile), 150);
+    return () => clearTimeout(timer);
+  }, [roomProfile, profile, updateProfile]);
+
+  // Same for your name, which can be changed after joining.
+  const { rename } = roomGame;
+  const roomName = room?.me?.name;
+  useEffect(() => {
+    if (!roomName || !myName || roomName === myName) return;
+    // Typing changes the name on every key; send only once it settles.
+    const timer = setTimeout(() => rename(myName), 300);
+    return () => clearTimeout(timer);
+  }, [roomName, myName, rename]);
   useEffect(() => {
     tagRef.current = currentTag;
   }, [currentTag]);
@@ -541,7 +577,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     return (
       <div key={`record-${record.round}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
         <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
-        <NameTag label={record.tag.label} color={record.tag.color} />
+        <NameTag label={record.tag.label} color={record.tag.color} icon={record.tag.icon} className="max-w-[35%]" />
         <div className="flex shrink-0">
           {record.answers.map((answer, index) => (
             <span key={answer.id} className={`relative h-9 w-9 ${index > 0 ? "-ml-4" : ""}`}>
@@ -969,7 +1005,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       name={joinName}
       onNameChange={setNameDraft}
       connected={roomGame.connected}
-      onJoin={roomGame.join}
+      onJoin={(name, partner) => roomGame.join(name, partner, profile)}
     />
   );
 
@@ -1043,11 +1079,17 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                     <Image src={player.partner.spriteUrl} alt="" fill sizes="32px" className="object-contain" />
                   )}
                 </span>
-                <span className="min-w-0 flex-1 truncate text-base">
-                  {player.name}
-                  {isYou && <span className="text-ink-soft"> (you)</span>}
-                  {player.id === room?.hostId && <span className="ml-1 text-xs text-ink-soft">host</span>}
-                  {!player.connected && <span className="ml-1 text-xs">away</span>}
+                <span className={`flex min-w-0 flex-1 items-center gap-1.5 text-base ${player.connected ? "" : "opacity-50"}`}>
+                  {/* Your own tag shows your name and color right away, before the room echoes them back. */}
+                  <NameTag
+                    label={isYou ? (myName ?? player.name) : player.name}
+                    color={(isYou ? profile : player.profile).color}
+                  />
+                  <span className="shrink-0 whitespace-nowrap text-xs text-ink-soft">
+                    {isYou && "you"}
+                    {player.id === room?.hostId && `${isYou ? " · " : ""}host`}
+                    {!player.connected && " · away"}
+                  </span>
                 </span>
                 {room?.isHost && isSetup && !isYou && player.connected && (
                   <button
@@ -1135,7 +1177,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           {/* Bottom screen: where you answer. */}
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <NameTag label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label} color={currentTag.color} size="md" />
+              <NameTagEditor
+                label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
+                icon={currentTag.icon}
+                // While joining, this edits the same name as the join form below it.
+                name={joining ? joinName : roomGame.savedName}
+                onNameChange={joining ? setNameDraft : roomGame.saveName}
+                color={profile.color}
+                onColorChange={(color) => setProfile({ color })}
+                className="max-w-[65%]"
+              />
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>
             </div>
             {gameState === "loading" ? (

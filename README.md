@@ -69,7 +69,15 @@ The room server runs on Cloudflare Workers, which works on the free plan.
 2. From this folder, run `npx wrangler login`, then `npm run deploy:party`. Wrangler prints the Worker's address, e.g. `https://pokemonguessinggame-rooms.<your-subdomain>.workers.dev`.
 3. In Vercel, add the environment variable `NEXT_PUBLIC_PARTY_HOST` with that host (without `https://`), e.g. `pokemonguessinggame-rooms.<your-subdomain>.workers.dev`, then redeploy.
 
-Until `NEXT_PUBLIC_PARTY_HOST` is set, production builds hide the multiplayer buttons and solo play works as before.
+Until `NEXT_PUBLIC_PARTY_HOST` is set, production builds hide the multiplayer buttons and solo play works as before (unless `PREVIEW_ENVIRONMENT` is on, below).
+
+### Multiplayer in preview deployments
+
+To step through the multiplayer screens in a Vercel preview, add the environment variable `PREVIEW_ENVIRONMENT` with the value `true`, ticking only **Preview**, then redeploy the preview.
+
+With it on, the site never connects to a room server. Each room runs inside the page, using the same room rules as the real server, so you can create or join a room, pick a name and partner, start a game and play it through to the results. You're the only player in it: nobody else can join, and reloading the page starts the room over. `NEXT_PUBLIC_PARTY_HOST` is ignored while the flag is on.
+
+The same flag works locally: `PREVIEW_ENVIRONMENT=true npm run dev` (no `npm run dev:party` needed).
 
 
 ## Scripts

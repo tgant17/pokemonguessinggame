@@ -75,6 +75,80 @@ button:not(:disabled):hover > svg > .sketch-fill-paper {
   fill: var(--paper-hover);
 }
 
+/* The 3-2-1 countdown that opens a game: each number pops in, then shrinks away just before the next. */
+.countdown-backdrop {
+  background-color: color-mix(in srgb, var(--chrome-soft) 82%, transparent);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+  animation: countdown-fade-in 0.2s ease-out;
+}
+
+.countdown-backdrop-out {
+  animation: countdown-fade-out 0.3s ease-in forwards;
+}
+
+.countdown-step {
+  animation:
+    countdown-pop 0.4s cubic-bezier(0.2, 0.8, 0.3, 1.2) both,
+    countdown-exit 0.16s ease-in var(--countdown-exit-at, 840ms) forwards;
+}
+
+.countdown-go {
+  animation: countdown-go 0.65s cubic-bezier(0.2, 0.8, 0.3, 1) forwards;
+}
+
+@keyframes countdown-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes countdown-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes countdown-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.45) rotate(-12deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.07) rotate(2deg);
+  }
+  to {
+    transform: scale(1) rotate(0deg);
+  }
+}
+
+@keyframes countdown-exit {
+  to {
+    opacity: 0;
+    transform: scale(0.7) rotate(6deg);
+  }
+}
+
+@keyframes countdown-go {
+  from {
+    opacity: 0;
+    transform: scale(0.5) rotate(-10deg);
+  }
+  30% {
+    opacity: 1;
+    transform: scale(1.12) rotate(3deg);
+  }
+  60% {
+    opacity: 1;
+    transform: scale(1.05) rotate(0deg);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.35);
+  }
+}
+
 .hatch-fill {
   background-image: repeating-linear-gradient(-45deg, var(--ink) 0 2px, transparent 2px 5px);
 }
@@ -91,7 +165,9 @@ button:not(:disabled):hover > svg > .sketch-fill-paper {
   }
   .message-in,
   .blink,
-  .dice-roll {
+  .dice-roll,
+  .countdown-step,
+  .countdown-go {
     animation: none;
   }
 }

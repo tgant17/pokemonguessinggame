@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { GameSettings } from "./engine.ts";
-import { MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
+import { INTRO_COUNTDOWN_MS, MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
 import {
   MAX_NAME_LENGTH,
   clampName,
@@ -159,9 +159,21 @@ test("a round's clock starts when everyone's sprites are ready, or after a timeo
   const slow = twoPlayerRoom();
   start(slow);
   ready(slow, "ash", T0 + 100);
-  assert.equal(slow.nextWakeAt(), T0 + READY_TIMEOUT_MS);
+  // The first round also waits out the 3-2-1 countdown, since players only say they're ready once it ends.
+  const deadline = T0 + INTRO_COUNTDOWN_MS + READY_TIMEOUT_MS;
+  assert.equal(slow.nextWakeAt(), deadline);
   slow.advance(T0 + READY_TIMEOUT_MS);
-  assert.equal(slow.snapshotFor("ash", T0 + READY_TIMEOUT_MS).game?.phase, "playing");
+  assert.equal(slow.snapshotFor("ash", T0 + READY_TIMEOUT_MS).game?.phase, "waiting", "Misty may still be counting down");
+  slow.advance(deadline);
+  assert.equal(slow.snapshotFor("ash", deadline).game?.phase, "playing");
+
+  // Later rounds have no countdown, so they wait the usual time.
+  answer(slow, "ash", [1], deadline + 100);
+  answer(slow, "misty", [1], deadline + 200);
+  const nextRoundAt = slow.nextWakeAt()!;
+  slow.advance(nextRoundAt);
+  assert.equal(slow.snapshotFor("ash", nextRoundAt).game?.roundIndex, 1);
+  assert.equal(slow.nextWakeAt(), nextRoundAt + READY_TIMEOUT_MS);
 });
 
 test("answers stay private until everyone has answered, then all results are revealed", () => {

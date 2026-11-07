@@ -19,6 +19,8 @@ import type { RoundData } from "@/lib/game";
 // Everything the game screen needs to draw a game in progress. Solo play builds it from a local
 // engine; a multiplayer room will build the same shape from what its server sends.
 export type GameView = {
+  // Changes each time a new game starts.
+  gameId: number;
   settings: GameSettings;
   roundIndex: number;
   round: RoundData;
@@ -48,6 +50,7 @@ const ME = "me";
 // result is known, so the page can update the chat log.
 export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
   const [game, setGame] = useState<GameState | null>(null);
+  const [gameId, setGameId] = useState(0);
   const [now, setNow] = useState(() => Date.now());
 
   // Sleep until the next deadline or clock change, then let the engine move the game along.
@@ -81,6 +84,7 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
 
   const start = useCallback((settings: GameSettings, rounds: RoundData[]) => {
     setNow(Date.now());
+    setGameId((id) => id + 1);
     setGame(createGame(settings, rounds, [ME]));
   }, []);
 
@@ -100,6 +104,7 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
     const round = game && currentRound(game);
     if (!game || !round) return null;
     return {
+      gameId,
       settings: game.settings,
       roundIndex: game.roundIndex,
       round,
@@ -110,7 +115,7 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
       locked: false,
       myPicks: game.answers[ME]?.pickedIds ?? null,
     };
-  }, [game, now]);
+  }, [game, gameId, now]);
 
   const controller = useMemo<GameController>(
     () => ({ view, startClock: startRoundClock, submit }),

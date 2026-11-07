@@ -4,6 +4,7 @@ import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
+import { CountdownIntro } from "@/components/CountdownIntro";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
 import { JoinRoomScreen } from "@/components/JoinRoomScreen";
 import {
@@ -286,11 +287,20 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     [],
   );
 
+  // Each game opens with a 3-2-1 countdown. The first round's sprites load behind it but stay hidden, and its
+  // clock only starts at "Go!". introGo is the game whose countdown has reached "Go!"; introDone the game whose
+  // "Go!" has faded away. Someone who arrives once the first round's clock is running doesn't see it.
+  const [introGo, setIntroGo] = useState<number | null>(null);
+  const [introDone, setIntroDone] = useState<number | null>(null);
+  const viewGameId = view?.gameId ?? null;
+  const countingDown = !!view && view.roundIndex === 0 && view.phase === "waiting" && introGo !== view.gameId;
+  const showIntro = countingDown || (viewGameId !== null && introGo === viewGameId && introDone !== viewGameId);
+
   // The round's clock only starts once its sprites are on screen.
   const { startClock } = game;
   useEffect(() => {
-    if (view?.phase === "waiting" && spritesReady) startClock();
-  }, [view?.phase, spritesReady, startClock]);
+    if (view?.phase === "waiting" && spritesReady && !countingDown) startClock();
+  }, [view?.phase, spritesReady, countingDown, startClock]);
 
   useEffect(() => {
     const loadNames = async () => {
@@ -395,6 +405,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       : gameState === "finished"
         ? `${totalRounds}/${totalRounds}`
         : `–/${totalRounds}`;
+  const gameSummary = `${modeConfig.label} · ${totalRounds} rounds · ${questionTime}s${winnerTakesAll ? " · winner takes all" : ""}`;
   const instructions = isMulti
     ? `${capitalize(answerCountWord)} silhouettes are stacked on top of each other. Pick all ${answerCountWord} Pokémon before the ${questionTime}-second clock runs out!`
     : `Study the silhouette and choose the matching Pokémon before the ${questionTime}-second clock runs out. Quicker answers earn more points!`;
@@ -501,7 +512,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
     return (
       <div className="relative h-36 w-full sm:h-44">
-        {!spritesReady && (
+        {!spritesReady && !countingDown && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-soft">
             Loading sprite{stackSize > 1 ? "s" : ""}...
           </div>
@@ -517,8 +528,9 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               className="absolute inset-0 transition-transform duration-500 ease-out"
               style={{
                 transform: `translateX(${offset}) scale(${scale})`,
-                // Stacked silhouettes stay hidden until every sprite has loaded, so none pops in before the others.
-                visibility: spritesReady ? "visible" : "hidden",
+                // Stacked silhouettes stay hidden until every sprite has loaded, so none pops in before the others,
+                // and during the opening countdown, so nobody gets a head start.
+                visibility: spritesReady && !countingDown ? "visible" : "hidden",
               }}
             >
               <Image
@@ -692,9 +704,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           </>
         )}
         {history.length > 0 && (
-          <Notice>
-            {MODE_CONFIG[mode].label} · {totalRounds} rounds · {questionTime}s{winnerTakesAll ? " · winner takes all" : ""}
-          </Notice>
+          <Notice>{gameSummary}</Notice>
         )}
         {gameLog}
         {renderCurrentRound()}
@@ -741,7 +751,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   };
 
   const renderAnswers = () => {
-    if (gameState !== "playing" || !currentRound) {
+    // The options stay as blanks during the opening countdown too, so nobody can read them early.
+    if (gameState !== "playing" || !currentRound || countingDown) {
       return (
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
           {Array.from({ length: modeConfig.optionCount }).map((_, index) => (
@@ -1184,6 +1195,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     if (gameState === "loading") return "Loading…";
     if (room && isSetup && !room.isHost) return `Room ${room.code}`;
     if (isSetup) return "Set up a game";
+    if (countingDown) return "Get ready…";
     if (roundRevealed) return "Next round…";
     if (view?.locked) return room?.inGame ? "Locked in" : "Watching";
     if (isMulti) return `Pick ${answerCountWord} · ${selectedIds.length}/${modeConfig.answerCount}`;
@@ -1286,7 +1298,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 {renderAnswers()}
                 {gameState === "playing" && !roundRevealed && view?.locked
                   ? renderLockedIn()
-                  : isMulti && gameState === "playing" && status === "idle" && renderSendButton()}
+                  : isMulti && gameState === "playing" && status === "idle" && !countingDown && renderSendButton()}
               </>
             )}
           </SketchPanel>
@@ -1296,6 +1308,15 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
         <p className="text-center text-xs text-ink-soft">Sprite data fetched live from the PokéAPI sprites collection.</p>
       </div>
+
+      {showIntro && viewGameId !== null && (
+        <CountdownIntro
+          key={viewGameId}
+          caption={gameSummary}
+          onGo={() => setIntroGo(viewGameId)}
+          onDone={() => setIntroDone(viewGameId)}
+        />
+      )}
     </main>
   );
 }

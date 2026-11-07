@@ -5,6 +5,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { SketchFrame, SketchIcon } from "@/components/sketch";
 import { PARTNER_CHOICE_COUNT, drawPartnerChoices, formatName, type PokemonSprite } from "@/lib/game";
+import { randomMashupName, type NameMashup } from "@/lib/mashup";
 import { MAX_NAME_LENGTH, clampName, cleanName, nameLength } from "@/lib/protocol";
 
 type JoinRoomFormProps = {
@@ -18,7 +19,8 @@ type JoinRoomFormProps = {
 };
 
 /**
- * Joining a room: write a name (up to 10 characters) and pick a partner from three random Pokémon.
+ * Joining a room: write a name (up to 10 characters), or roll the die for two Pokémon mashed together,
+ * and pick a partner from three random Pokémon.
  * The choices stay put if joining fails (say the room is full), so the player can just try again.
  */
 export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, connected, onJoin }: JoinRoomFormProps) {
@@ -29,6 +31,9 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
   const [drawFailed, setDrawFailed] = useState(false);
   const [drawAttempt, setDrawAttempt] = useState(0);
   const [partnerId, setPartnerId] = useState<number | null>(null);
+  const [mashup, setMashup] = useState<NameMashup | null>(null);
+  // Counts rolls so the die can tumble again on every one.
+  const [rolls, setRolls] = useState(0);
 
   // Three fresh partners every time the form opens, and again on retry.
   useEffect(() => {
@@ -49,6 +54,16 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
     setDrawAttempt((attempt) => attempt + 1);
   };
 
+  const rollName = () => {
+    const rolled = randomMashupName(pokemonNames);
+    if (!rolled) return;
+    setMashup(rolled);
+    setRolls((count) => count + 1);
+    onNameChange(rolled.name);
+  };
+  // Which two Pokémon made the name, until the player edits it into something of their own.
+  const mashupNote = mashup && name === mashup.name ? mashup.from.map(formatName).join(" + ") : "";
+
   const finalName = cleanName(name);
   const partner = choices?.find((choice) => choice.id === partnerId) ?? null;
   const length = nameLength(name);
@@ -64,28 +79,46 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
     <form onSubmit={handleSubmit} className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <SectionLabel htmlFor={inputId}>Your name</SectionLabel>
-        <div className="relative isolate flex items-center gap-2 rounded-[14px] pl-3.5 pr-3 focus-within:outline-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
-          <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
-          <input
-            id={inputId}
-            value={name}
-            onChange={(event) => onNameChange(clampName(event.target.value))}
-            placeholder="Ash"
-            autoComplete="nickname"
-            autoCapitalize="words"
-            spellCheck={false}
-            enterKeyHint="done"
-            aria-describedby={counterId}
-            className="h-12 min-w-0 flex-1 bg-transparent text-lg text-ink placeholder:text-ink-faint focus:outline-none"
-          />
-          <span
-            id={counterId}
-            className={`shrink-0 text-sm tabular-nums ${length >= MAX_NAME_LENGTH ? "text-ink" : "text-ink-soft"}`}
+        <div className="flex gap-2">
+          <div className="relative isolate flex min-w-0 flex-1 items-center gap-2 rounded-[14px] pl-3.5 pr-3 focus-within:outline-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
+            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
+            <input
+              id={inputId}
+              value={name}
+              onChange={(event) => onNameChange(clampName(event.target.value))}
+              placeholder="Ash"
+              autoComplete="nickname"
+              autoCapitalize="words"
+              spellCheck={false}
+              enterKeyHint="done"
+              aria-describedby={counterId}
+              className="h-12 min-w-0 flex-1 bg-transparent text-lg text-ink placeholder:text-ink-faint focus:outline-none"
+            />
+            <span
+              id={counterId}
+              className={`shrink-0 text-sm tabular-nums ${length >= MAX_NAME_LENGTH ? "text-ink" : "text-ink-soft"}`}
+            >
+              {length}/{MAX_NAME_LENGTH}
+              <span className="sr-only"> characters</span>
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={rollName}
+            disabled={!pokemonNames.length}
+            aria-label="Random name"
+            title="Random name: two Pokémon mashed together"
+            className={`${choiceButtonClass(false)} flex h-12 w-12 shrink-0 items-center justify-center disabled:text-ink-faint`}
           >
-            {length}/{MAX_NAME_LENGTH}
-            <span className="sr-only"> characters</span>
-          </span>
+            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
+            <span key={rolls} className={`flex ${rolls ? "dice-roll" : ""}`}>
+              <SketchIcon name="dice" className="h-6 w-6" strokeWidth={2.2} />
+            </span>
+          </button>
         </div>
+        <p aria-live="polite" className="text-xs text-ink-soft empty:hidden">
+          {mashupNote}
+        </p>
       </div>
 
       <div className="flex flex-col gap-2">

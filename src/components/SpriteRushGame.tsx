@@ -638,7 +638,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 <p className="font-hand text-2xl font-bold leading-tight sm:text-[1.7rem]">
                   {room ? `Welcome to room ${room.code}!` : "Ready to test your Pokédex knowledge?"}
                 </p>
-                <p className="mt-1 font-hand text-lg leading-snug text-ink-soft sm:text-xl">
+                <p className="mt-1 font-hand text-xl leading-snug text-ink sm:text-[1.4rem]">
                   {room
                     ? `Share the invite link below. ${room.isHost ? "You're" : room.hostId ? `${hostName} is` : "The first player to join is"} hosting and starts the game once everyone's in.`
                     : instructions}
@@ -1164,8 +1164,15 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         </header>
 
         <div>
-          {/* Top screen: the chat log. */}
-          <SketchPanel fill="chrome" className="flex h-[23rem] flex-col p-2.5 sm:h-[26rem]">
+          {/* Top screen: the chat log. Before the first game it only holds the welcome, so it
+              hugs that instead of leaving a gap above it; once rounds start it locks to a fixed
+              height so the answer buttons below don't shift as messages arrive. */}
+          <SketchPanel
+            fill="chrome"
+            className={`flex flex-col p-2.5 ${
+              history.length === 0 && gameState !== "playing" ? "max-h-[23rem] sm:max-h-[26rem]" : "h-[23rem] sm:h-[26rem]"
+            }`}
+          >
             {renderStatusStrip()}
             <div ref={feedRef} className="feed-scroll min-h-0 flex-1 overflow-y-auto rounded-[12px] px-2 pb-3 pt-1 sm:px-3">
               <div className="flex min-h-full flex-col justify-end gap-2.5">{renderFeed()}</div>

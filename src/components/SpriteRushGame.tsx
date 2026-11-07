@@ -585,6 +585,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             </div>
           );
         })}
+        {/* The opening countdown is drawn right where the first silhouette is about to appear. */}
+        {showIntro && viewGameId !== null && (
+          <CountdownIntro key={viewGameId} onGo={() => setIntroGo(viewGameId)} onDone={() => setIntroDone(viewGameId)} />
+        )}
       </div>
     );
   };
@@ -629,6 +633,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           ) : roundRevealed ? (
             // Watching a room: there's no result of your own to show, just the answer.
             <>{`${currentRound.answers.length > 1 ? "Those were" : "It's"} ${joinNames(currentRound.answers.map((answer) => formatName(answer.name)))}!`}</>
+          ) : countingDown ? (
+            <>Get ready!</>
           ) : (
             <>{isMulti ? `Who are these ${answerCountWord}?` : "Who's that Pokémon?"}</>
           )}
@@ -739,9 +745,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             </Message>
           </>
         )}
-        {history.length > 0 && (
-          <Notice>{gameSummary}</Notice>
-        )}
+        {(history.length > 0 || gameState === "playing") && <Notice>{gameSummary}</Notice>}
         {gameLog}
         {renderCurrentRound()}
         {gameState === "finished" && (
@@ -1307,14 +1311,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             <div ref={feedRef} className="feed-scroll min-h-0 flex-1 overflow-y-auto rounded-[12px] px-2 pb-3 pt-1 sm:px-3">
               <div className="flex min-h-full flex-col justify-end gap-2.5">{renderFeed()}</div>
             </div>
-            {showIntro && viewGameId !== null && (
-              <CountdownIntro
-                key={viewGameId}
-                caption={gameSummary}
-                onGo={() => setIntroGo(viewGameId)}
-                onDone={() => setIntroDone(viewGameId)}
-              />
-            )}
           </SketchPanel>
 
           {renderHinge()}

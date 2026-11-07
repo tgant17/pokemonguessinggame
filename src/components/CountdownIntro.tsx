@@ -24,7 +24,7 @@ const GO_BURST = ["M-6 8L-12 1", "M-8 44L-14 45", "M-4 80L-10 86", "M134 6L140 -
 
 const STEPS = [3, 2, 1] as const;
 const STEP_MS = INTRO_COUNTDOWN_MS / STEPS.length;
-// How long "Go!" stays up while it fades away. The round has already started by then, so it's short.
+// How long "Go!" stays up over the silhouette while it fades away. The round has already started, so it's short.
 const GO_MS = 650;
 // How long each number takes to shrink away before the next one replaces it.
 const EXIT_MS = 160;
@@ -39,16 +39,15 @@ const WIGGLE: [number, number, number][] = [
 ];
 
 type CountdownIntroProps = {
-  // Small print under the count, e.g. the mode, rounds and timer.
-  caption: string;
   // Called as "Go!" appears: the first round can start.
   onGo: () => void;
   // Called once "Go!" has faded away.
   onDone: () => void;
 };
 
-// The 3-2-1 that opens every game, drawn over the top screen. Its parent needs to be positioned.
-export function CountdownIntro({ caption, onGo, onDone }: CountdownIntroProps) {
+// The 3-2-1 that opens every game, drawn on the first round's sprite stage where the silhouette will appear.
+// It fills its nearest positioned parent.
+export function CountdownIntro({ onGo, onDone }: CountdownIntroProps) {
   // 0, 1, 2 show 3, 2, 1; 3 is "Go!".
   const [step, setStep] = useState(0);
   const go = step === STEPS.length;
@@ -79,55 +78,52 @@ export function CountdownIntro({ caption, onGo, onDone }: CountdownIntroProps) {
 
   const boil = useBoil(!go, 130);
   const [angle, dx, dy] = WIGGLE[boil % WIGGLE.length];
-  const label = go ? "Go!" : String(STEPS[step]);
 
   return (
-    <div
-      ref={rootRef}
-      className={`absolute inset-0 z-10 isolate flex flex-col items-center justify-center gap-4 px-4 ${go ? "pointer-events-none" : ""}`}
-    >
-      {/* Inset and rounded so it stays inside the box's hand-drawn outline. */}
-      <div
-        aria-hidden="true"
-        className={`countdown-backdrop absolute inset-[7px] -z-10 rounded-[14px] ${go ? "countdown-backdrop-out" : ""}`}
-      />
+    <div ref={rootRef} className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center">
       <span role="status" aria-live="assertive" className="sr-only">
-        {label}
+        {go ? "Go!" : STEPS[step]}
       </span>
 
       {go ? (
-        <div aria-hidden="true" className="countdown-go flex h-40 items-center justify-center sm:h-48">
-          <svg viewBox="-20 -14 170 116" className="h-32 w-auto overflow-visible text-ink sm:h-40">
-            {GO_STROKES.map((d) => (
-              <path key={d} d={d} fill="none" stroke="currentColor" strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
-            ))}
-            {GO_BURST.map((d, index) => (
-              <path
-                key={d}
-                d={d}
-                fill="none"
-                stroke="currentColor"
-                strokeWidth={5}
-                strokeLinecap="round"
-                pathLength={1}
-                className="sketch-draw"
-                style={{ animationDuration: "0.22s", animationDelay: `${60 + index * 25}ms` }}
-              />
-            ))}
-          </svg>
-        </div>
+        <svg
+          aria-hidden="true"
+          viewBox="-20 -14 170 116"
+          className="countdown-go h-28 w-auto overflow-visible text-ink sm:h-36"
+        >
+          {/* "Go!" lands on the black silhouette, so the letters get a paper outline underneath, like a sticker. */}
+          {GO_STROKES.map((d) => (
+            <path key={`halo-${d}`} d={d} fill="none" stroke="var(--paper)" strokeWidth={19} strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+          {GO_STROKES.map((d) => (
+            <path key={d} d={d} fill="none" stroke="currentColor" strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
+          ))}
+          {GO_BURST.map((d, index) => (
+            <path
+              key={d}
+              d={d}
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={5}
+              strokeLinecap="round"
+              pathLength={1}
+              className="sketch-draw"
+              style={{ animationDuration: "0.22s", animationDelay: `${60 + index * 25}ms` }}
+            />
+          ))}
+        </svg>
       ) : (
         <div
           key={step}
           aria-hidden="true"
-          className="countdown-step relative isolate flex h-40 w-40 items-center justify-center sm:h-48 sm:w-48"
+          className="countdown-step relative isolate flex h-32 w-32 items-center justify-center sm:h-40 sm:w-40"
           style={{ "--countdown-exit-at": `${STEP_MS - EXIT_MS}ms` } as CSSProperties}
         >
           {/* A fresh circle for every number, re-traced a few times a second while it's up. */}
-          <SketchFrame radius={999} wobble={2.4} strokeWidth={4.5} fill="paper" seed={step * 31 + (boil % 3)} draw />
+          <SketchFrame radius={999} wobble={2.2} strokeWidth={4} fill="paper" seed={step * 31 + (boil % 3)} draw />
           <svg
             viewBox="0 0 100 100"
-            className="h-24 w-24 overflow-visible text-ink sm:h-28 sm:w-28"
+            className="h-20 w-20 overflow-visible text-ink sm:h-24 sm:w-24"
             style={{ transform: `translate(${dx}px, ${dy}px) rotate(${angle}deg)` }}
           >
             {DIGIT_STROKES[STEPS[step]].map((d) => (
@@ -147,11 +143,6 @@ export function CountdownIntro({ caption, onGo, onDone }: CountdownIntroProps) {
           </svg>
         </div>
       )}
-
-      <div aria-hidden="true" className={`text-center transition-opacity duration-200 ${go ? "opacity-0" : ""}`}>
-        <p className="font-hand text-3xl font-bold leading-none">Get ready!</p>
-        <p className="mt-1.5 text-sm text-ink-soft">{caption}</p>
-      </div>
     </div>
   );
 }

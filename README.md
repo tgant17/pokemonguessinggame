@@ -7,7 +7,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Loads Pokémon names from a local cache (`public/pokemon-list.json`) so autocomplete works offline.
 - Prefetches all sprites for the round up front, preventing mid-round loading hitches.
 - Silhouette effect while guessing, then reveals the sprite after your answer.
-- Every game opens with a hand-drawn 3-2-1 countdown. The first silhouette and its answer options stay hidden until "Go!", when the clock starts.
+- Every game opens with a hand-drawn 3-2-1 countdown, drawn in the first round's card right where the silhouette is about to appear. The silhouette and its answer options stay hidden until "Go!", when the clock starts.
 - Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds).
 - Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (10-second clock by default).
 - Legendary mode: three stacked silhouettes, pick all three from 8 options (15-second clock by default).

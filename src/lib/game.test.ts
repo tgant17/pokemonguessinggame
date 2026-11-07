@@ -94,10 +94,11 @@ test("drawPartnerChoices returns null when sprites can't be fetched", async () =
   assert.equal(await drawPartnerChoices(["a", "b", "c", "d"], async () => null), null);
 });
 
-test("option icons appear for the second half of Hard and Super Hard games only", () => {
-  const withIcons = (mode: "normal" | "hard" | "superHard", total: number) =>
-    Array.from({ length: total }, (_, i) => i).filter((i) => showsOptionIcons(mode, i, total));
-  assert.deepEqual(withIcons("hard", 10), [5, 6, 7, 8, 9]);
-  assert.deepEqual(withIcons("superHard", 5), [3, 4]);
+test("option icons appear once half the clock is gone, in Hard and Super Hard only", () => {
+  // Seconds left on the clock at which icons are showing.
+  const withIcons = (mode: "normal" | "hard" | "superHard", questionTime: number) =>
+    Array.from({ length: questionTime + 1 }, (_, i) => i).filter((t) => showsOptionIcons(mode, t, questionTime));
+  assert.deepEqual(withIcons("hard", 10), [0, 1, 2, 3, 4, 5]);
+  assert.deepEqual(withIcons("superHard", 15), [0, 1, 2, 3, 4, 5, 6, 7]);
   assert.deepEqual(withIcons("normal", 10), []);
 });

@@ -100,10 +100,10 @@ export const joinNames = (names: string[]) =>
 export const optionIconUrl = (id: number) =>
   `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 
-// Stacked modes (Hard, Super Hard) put icons beside the options for the second half of the game, as a hint
-// once the player is warmed up. With an odd number of rounds the middle one stays without icons.
-export const showsOptionIcons = (mode: GameMode, roundIndex: number, totalRounds: number) =>
-  MODE_CONFIG[mode].answerCount > 1 && roundIndex >= Math.ceil(totalRounds / 2);
+// Stacked modes (Hard, Super Hard) put icons beside the options once half the round's clock has run down,
+// as a hint for players who are still stuck. A 10-second round shows them from 5 seconds left.
+export const showsOptionIcons = (mode: GameMode, timeLeft: number, questionTime: number) =>
+  MODE_CONFIG[mode].answerCount > 1 && timeLeft <= questionTime / 2;
 
 export const spriteFromResponse =(data: PokemonSpriteResponse): string | null => {
   const padded = data.id.toString().padStart(3, "0");

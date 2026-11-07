@@ -712,7 +712,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       );
     }
     const revealed = roundRevealed;
-    const iconsOn = showsOptionIcons(mode, currentRoundIndex, totalRounds);
+    const iconsOn = showsOptionIcons(mode, timeLeft, questionTime);
     return (
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
         {currentRound.options.map((option) => {

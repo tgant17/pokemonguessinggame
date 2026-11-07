@@ -1,15 +1,25 @@
 "use client";
 
-import { useRef, type KeyboardEvent, type PointerEvent } from "react";
-import { NameTag, SketchPanel } from "@/components/sketch";
-import { WHEEL_LIGHTNESS, hexToHsl, hslToHex, wheelColorAt, type Profile } from "@/lib/profile";
+import { useEffect, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
+import { SketchPanel } from "@/components/sketch";
+import { WHEEL_LIGHTNESS, hexToHsl, hslToHex, wheelColorAt } from "@/lib/profile";
 
 // The full hue circle at the wheel's lightness, starting from red at the top (matches wheelColorAt).
 const HUE_STOPS = Array.from({ length: 13 }, (_, i) => `hsl(${i * 30} 100% ${WHEEL_LIGHTNESS}%)`).join(", ");
 const WHEEL_BACKGROUND = `radial-gradient(circle closest-side, hsl(0 0% ${WHEEL_LIGHTNESS}%), transparent), conic-gradient(${HUE_STOPS})`;
 
 /** A round color picker: click or drag anywhere on it; arrow keys nudge hue (left/right) and strength (up/down). */
-export function ColorWheel({ color, onChange, size = 132 }: { color: string | null; onChange: (hex: string) => void; size?: number }) {
+export function ColorWheel({
+  color,
+  onChange,
+  size = 132,
+  autoFocus = false,
+}: {
+  color: string | null;
+  onChange: (hex: string) => void;
+  size?: number;
+  autoFocus?: boolean;
+}) {
   const wheelRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const { hue, saturation } = color ? hexToHsl(color) : { hue: 0, saturation: 0 };
@@ -18,6 +28,10 @@ export function ColorWheel({ color, onChange, size = 132 }: { color: string | nu
   const distance = (saturation / 100) * (size / 2);
   const markerX = size / 2 + Math.sin(angle) * distance;
   const markerY = size / 2 - Math.cos(angle) * distance;
+
+  useEffect(() => {
+    if (autoFocus) wheelRef.current?.focus();
+  }, [autoFocus]);
 
   const pickAt = (event: PointerEvent<HTMLDivElement>) => {
     const rect = wheelRef.current?.getBoundingClientRect();
@@ -74,33 +88,57 @@ export function ColorWheel({ color, onChange, size = 132 }: { color: string | nu
   );
 }
 
-/** Where players pick their name color. It's saved on this device and shown to others in a room. */
-export function ProfileCard({
-  name,
-  icon,
-  profile,
-  onChange,
-}: {
-  name: string;
-  // The partner Pokémon's sprite, shown on the preview tag once you've joined a room.
-  icon?: string | null;
-  profile: Profile;
-  onChange: (update: Partial<Profile>) => void;
-}) {
-  return (
-    <SketchPanel className="p-4 sm:p-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <p className="text-xs uppercase tracking-[0.25em] text-ink-soft">Your trainer</p>
-          <p className="font-hand text-xl font-bold leading-tight">Pick your color</p>
-        </div>
-        <NameTag label={name} color={profile.color} icon={icon} size="md" className="mt-1 max-w-[45%]" />
-      </div>
+/**
+ * A small color-wheel button that sits next to your name tag. Tapping it pops the full wheel open below it;
+ * tapping anywhere else or pressing Escape closes it. The color is saved on this device and shown to others in a room.
+ */
+export function ColorPickerButton({ color, onChange }: { color: string | null; onChange: (hex: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement>(null);
+  const buttonRef = useRef<HTMLButtonElement>(null);
 
-      <div className="mt-4 flex flex-col items-center gap-2">
-        <ColorWheel color={profile.color} onChange={(color) => onChange({ color })} />
-        <p className="text-xs text-ink-soft">Tap the wheel to pick a color</p>
-      </div>
-    </SketchPanel>
+  useEffect(() => {
+    if (!open) return;
+    // Pointer-down rather than click, so a drag that starts on the wheel and ends outside it doesn't close it.
+    const closeIfOutside = (event: globalThis.PointerEvent) => {
+      if (!rootRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const closeOnEscape = (event: globalThis.KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      setOpen(false);
+      buttonRef.current?.focus();
+    };
+    document.addEventListener("pointerdown", closeIfOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("pointerdown", closeIfOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [open]);
+
+  return (
+    <div ref={rootRef} className="relative flex shrink-0">
+      <button
+        ref={buttonRef}
+        type="button"
+        aria-label="Change your color"
+        aria-haspopup="dialog"
+        aria-expanded={open}
+        onClick={() => setOpen((value) => !value)}
+        className={`h-6 w-6 rounded-full border-2 border-ink transition-transform duration-200 hover:rotate-45 focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink ${
+          open ? "rotate-45" : ""
+        }`}
+        style={{ background: WHEEL_BACKGROUND }}
+      />
+      {open && (
+        // Centered under the button: it sits on the left half of the screen, so this stays on-screen even on narrow phones.
+        <div role="dialog" aria-label="Pick your color" className="absolute left-1/2 top-full z-20 mt-2 -translate-x-1/2">
+          <SketchPanel radius={16} className="flex flex-col items-center gap-2 p-3">
+            <ColorWheel color={color} onChange={onChange} size={120} autoFocus />
+            <p className="whitespace-nowrap text-xs text-ink-soft">Your name color</p>
+          </SketchPanel>
+        </div>
+      )}
+    </div>
   );
 }

@@ -29,7 +29,7 @@ import { useLocalGame, type GameController, type RoundResultEvent } from "@/hook
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
 import { clampName, cleanName, makeRoomCode, normalizeRoomCode, isRoomCode, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
-import { ProfileCard } from "@/components/ProfileCard";
+import { ColorPickerButton } from "@/components/ColorPicker";
 import { useProfile } from "@/hooks/useProfile";
 import type { Profile } from "@/lib/profile";
 
@@ -1073,15 +1073,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     </SketchPanel>
   );
 
-  const renderProfileCard = () => (
-    <ProfileCard
-      name={inRoom ? (room?.me?.name ?? (cleanName(joinName) || "You")) : "You"}
-      icon={room?.me?.partner?.spriteUrl}
-      profile={profile}
-      onChange={setProfile}
-    />
-  );
-
   const bottomPrompt = () => {
     if (gameState === "loading") return "Loading…";
     if (joining) return "Make your name tag";
@@ -1125,13 +1116,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           {/* Bottom screen: where you answer. */}
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <NameTag
-                label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
-                color={currentTag.color}
-                icon={currentTag.icon}
-                size="md"
-                className="max-w-[60%]"
-              />
+              <div className="flex min-w-0 max-w-[65%] items-center gap-2">
+                <NameTag
+                  label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
+                  color={currentTag.color}
+                  icon={currentTag.icon}
+                  size="md"
+                  className="max-w-[calc(100%_-_2rem)]"
+                />
+                <ColorPickerButton color={profile.color} onChange={(color) => setProfile({ color })} />
+              </div>
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>
             </div>
             {gameState === "loading" ? (
@@ -1150,8 +1144,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             )}
           </SketchPanel>
         </div>
-
-        {renderProfileCard()}
 
         {inRoom ? renderPlayersPanel() : multiplayerAvailable && renderPlayOnlinePanel()}
 

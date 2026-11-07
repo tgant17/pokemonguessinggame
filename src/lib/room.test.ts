@@ -623,3 +623,32 @@ test("chat lines are tidied up and kept short", () => {
   assert.equal(cleanChat("⚡".repeat(MAX_CHAT_LENGTH + 5)), "⚡".repeat(MAX_CHAT_LENGTH));
   assert.equal(clampChat("tab\there "), "tab here ", "a tab becomes a space, and spaces at the end stay while typing");
 });
+
+test("the round-by-round summary is only sent once the game is finished", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  let now = T0;
+  for (let round = 0; round < 5; round += 1) {
+    ready(room, "ash", now, round);
+    ready(room, "misty", now, round);
+    answer(room, "ash", [round * 10 + 1], now, round);
+    // Misty only gets the even rounds.
+    answer(room, "misty", [round * 10 + (round % 2 ? 2 : 1)], now, round);
+    assert.equal(room.snapshotFor("ash", now).game?.summary, undefined, "no summary mid-game");
+    now = room.nextWakeAt()!;
+    room.advance(now);
+  }
+  const summary = room.snapshotFor("misty", now).game?.summary;
+  assert.equal(summary?.length, 5);
+  assert.deepEqual(summary?.[0].answers, [mon(1)]);
+  assert.deepEqual(
+    summary?.map((round) => [round.results.ash.delta, round.results.misty.outcome]),
+    [
+      [4, "correct"],
+      [4, "wrong"],
+      [4, "correct"],
+      [4, "wrong"],
+      [4, "correct"],
+    ],
+  );
+});

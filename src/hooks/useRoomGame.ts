@@ -220,6 +220,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       // Stacked modes keep picks open until the clock runs out, so only a normal-mode answer locks you in.
       locked: !game.inGame || (game.myPicks !== null && !answersStayOpen(game.settings.mode)),
       myPicks: game.myPicks ?? game.myAnswer?.pickedIds ?? null,
+      summary: game.summary ?? null,
     };
   }, [game, endsAt, now, received?.receivedAt, me?.score]);
 

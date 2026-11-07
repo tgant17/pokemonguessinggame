@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   createGame,
   currentRound,
+  gameSummary,
   nextWakeAt,
   secondsLeft,
   startClock,
@@ -13,6 +14,7 @@ import {
   type GameSettings,
   type GameState,
   type PlayerAnswer,
+  type RoundSummary,
 } from "@/lib/engine";
 import type { RoundData } from "@/lib/game";
 
@@ -32,6 +34,9 @@ export type GameView = {
   locked: boolean;
   // The picks the game has recorded for this player in the current round, if any.
   myPicks: number[] | null;
+  // Every round's answers by player id, once the game is finished (null before then, or from a room server
+  // that predates the summary).
+  summary: RoundSummary[] | null;
 };
 
 // winnerName: in a winner-takes-all room round, who took the pot (if anyone).
@@ -44,7 +49,8 @@ export type GameController = {
   submit: (pickedIds: number[]) => void;
 };
 
-const ME = "me";
+// Your player id in solo play.
+export const ME = "me";
 
 // Runs a one-player game in the browser. onRoundResult fires once per round, when this player's
 // result is known, so the page can update the chat log.
@@ -115,6 +121,7 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
       myScore: game.scores[ME] ?? 0,
       locked: false,
       myPicks: game.answers[ME]?.pickedIds ?? null,
+      summary: game.phase === "finished" ? gameSummary(game) : null,
     };
   }, [game, gameId, now]);
 

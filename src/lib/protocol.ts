@@ -2,7 +2,7 @@
 // Shared by both sides; keep it free of React/Next and Worker-only imports.
 
 import { parseDrawing, type Drawing } from "./drawing.ts";
-import type { GamePhase, GameSettings, PlayerAnswer } from "./engine.ts";
+import type { GamePhase, GameSettings, PlayerAnswer, RoundSummary } from "./engine.ts";
 import { MODE_CONFIG, ROUND_OPTIONS, type GameMode, type PokemonSprite, type RoundData } from "./game.ts";
 import { cleanProfile, type Profile } from "./profile.ts";
 
@@ -56,6 +56,9 @@ export type RoomGame = {
   // The receiving player's recorded picks, and their result once the round is revealed.
   myPicks: number[] | null;
   myAnswer: PlayerAnswer | null;
+  // Every round's answers, for the end-of-game summary. Only sent once the game is finished, and missing
+  // from room servers that predate the summary.
+  summary?: RoundSummary[];
 };
 
 // Something that happened in the room, shown to everyone as a line in the chat log. A "rename" is any

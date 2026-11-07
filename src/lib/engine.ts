@@ -9,6 +9,7 @@ import {
   timeoutResult,
   winnerTakesAllPot,
   type GameMode,
+  type PokemonSprite,
   type RoundData,
   type RoundOutcome,
 } from "./game.ts";
@@ -38,7 +39,12 @@ export type GameState = {
   // Answers for the current round, keyed by player id.
   answers: Record<string, PlayerAnswer>;
   scores: Record<string, number>;
+  // Every revealed round's answers, oldest first, so the end-of-game summary can break the game down by round.
+  results: Record<string, PlayerAnswer>[];
 };
+
+// One revealed round as the end-of-game summary shows it: the Pokémon it was and everyone's answer.
+export type RoundSummary = { answers: PokemonSprite[]; results: Record<string, PlayerAnswer> };
 
 export const createGame = (settings: GameSettings, rounds: RoundData[], playerIds: string[]): GameState => ({
   settings,
@@ -51,6 +57,7 @@ export const createGame = (settings: GameSettings, rounds: RoundData[], playerId
   frozenSecondsLeft: null,
   answers: {},
   scores: Object.fromEntries(playerIds.map((id) => [id, 0])),
+  results: [],
 });
 
 export const currentRound = (state: GameState): RoundData | undefined => state.rounds[state.roundIndex];
@@ -79,6 +86,7 @@ const reveal = (state: GameState, now: number, answers: Record<string, PlayerAns
     phase: "reveal",
     answers,
     scores,
+    results: [...state.results, answers],
     frozenSecondsLeft: secondsLeft(state, now),
     revealEndsAt: now + MODE_CONFIG[state.settings.mode].revealDelay,
   };
@@ -158,6 +166,19 @@ export const tick = (state: GameState, now: number): GameState => {
     };
   }
   return state;
+};
+
+// The round-by-round breakdown of the rounds revealed so far.
+export const gameSummary = (state: GameState): RoundSummary[] =>
+  state.results.map((results, index) => ({ answers: state.rounds[index]?.answers ?? [], results }));
+
+// Who won a round: whoever scored the most points in it (several on a tie). Nobody wins a round nobody scored in.
+export const roundWinners = (results: Record<string, PlayerAnswer>): string[] => {
+  const best = Math.max(0, ...Object.values(results).map((answer) => answer.delta));
+  if (best <= 0) return [];
+  return Object.entries(results)
+    .filter(([, answer]) => answer.delta === best)
+    .map(([id]) => id);
 };
 
 // When the state could next change on its own (a deadline, or the next whole second on the clock),

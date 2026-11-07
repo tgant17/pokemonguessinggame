@@ -46,7 +46,7 @@ Then pick **Multiplayer** on the home page and use **Create a room**. In develop
 - Players are remembered by an id in the browser's local storage, so refreshing the page keeps your seat, score and any answer you'd locked in. People who join mid-game watch (and see each reveal) until the next game.
 - The first player to join hosts and picks the settings. If they're away, the next connected player can start; between games the host can hand hosting to someone else with **Make host**.
 - Players who have left are dropped from the list when the next game starts (or when the room is full and someone new joins). A room that everyone has left is wiped after 5 minutes.
-- To join, each player writes a name of up to 10 characters and picks a partner from three random Pokémon. Stuck for a name? The die next to the name box mashes two random Pokémon together (Pikachu + Charizard → Pikazard), and shows which two it used. Roll again as often as you like. The partner shows next to their name in the players list and in the room's chat.
+- To join, each player writes a name of up to 10 characters and picks a partner from three random Pokémon. Stuck for a name? The die next to the name box mashes two random Pokémon together (Pikachu + Charizard → Pikazard). Roll again as often as you like. The partner shows next to their name in the players list and in the room's chat.
 - The chat log on the top screen announces everyone who joins (with their partner) and every name change. Editing a name letter by letter shows as a single change. Something that happens mid-game appears just before the round it happened in, and each new game starts a fresh log.
 - Rooms hold up to 12 players.
 

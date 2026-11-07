@@ -5,7 +5,7 @@ import { useEffect, useId, useState, type FormEvent } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { SketchFrame, SketchIcon } from "@/components/sketch";
 import { PARTNER_CHOICE_COUNT, drawPartnerChoices, formatName, type PokemonSprite } from "@/lib/game";
-import { randomMashupName, type NameMashup } from "@/lib/mashup";
+import { randomMashupName } from "@/lib/mashup";
 import { MAX_NAME_LENGTH, clampName, cleanName, nameLength } from "@/lib/protocol";
 
 type JoinRoomFormProps = {
@@ -31,7 +31,6 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
   const [drawFailed, setDrawFailed] = useState(false);
   const [drawAttempt, setDrawAttempt] = useState(0);
   const [partnerId, setPartnerId] = useState<number | null>(null);
-  const [mashup, setMashup] = useState<NameMashup | null>(null);
   // Counts rolls so the die can tumble again on every one.
   const [rolls, setRolls] = useState(0);
 
@@ -57,12 +56,9 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
   const rollName = () => {
     const rolled = randomMashupName(pokemonNames);
     if (!rolled) return;
-    setMashup(rolled);
     setRolls((count) => count + 1);
     onNameChange(rolled.name);
   };
-  // Which two Pokémon made the name, until the player edits it into something of their own.
-  const mashupNote = mashup && name === mashup.name ? mashup.from.map(formatName).join(" + ") : "";
 
   const finalName = cleanName(name);
   const partner = choices?.find((choice) => choice.id === partnerId) ?? null;
@@ -116,9 +112,6 @@ export function JoinRoomForm({ roomCode, pokemonNames, name, onNameChange, conne
             </span>
           </button>
         </div>
-        <p aria-live="polite" className="text-xs text-ink-soft empty:hidden">
-          {mashupNote}
-        </p>
       </div>
 
       <div className="flex flex-col gap-2">

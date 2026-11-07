@@ -9,13 +9,13 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Silhouette effect while guessing, then reveals the sprite after your answer.
 - Adjustable game length (5/10/25 rounds), selectable timer (5/8/10/15 seconds).
 - Hard mode: two silhouettes stacked on top of each other, pick both Pokémon from 6 options (10-second clock by default).
-- Super Hard mode: three stacked silhouettes, pick all three from 8 options (15-second clock by default).
+- Legendary mode: three stacked silhouettes, pick all three from 8 options (15-second clock by default).
 - Speed scoring: the clock is split into quarters. A correct answer in the first quarter earns 4 points, then 3, 2, and 1 in the final quarter. Wrong answers and time-outs score 0 and never take points away.
-- In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
+- In Hard and Legendary, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI.
 - Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard. Each player joins with a name tag (up to 10 characters) and a partner picked from three random Pokémon.
 - Your name tag: tap it to change your name and pick its color on a color wheel. Both are remembered on your device, and in a room everyone sees changes right away.
-- **Extras → Winner takes all** (rooms only, toggle under the main settings): the first player to answer fully right takes the whole pot (speed points × number of players) and the round ends there. Everyone else scores 0 that round. You get one guess each, with no partial credit in Hard and Super Hard. If nobody gets it, nobody scores.
+- **Extras → Winner takes all** (rooms only, toggle under the main settings): the first player to answer fully right takes the whole pot (speed points × number of players) and the round ends there. Everyone else scores 0 that round. You get one guess each, with no partial credit in Hard and Legendary. If nobody gets it, nobody scores.
 
 ## Getting started
 

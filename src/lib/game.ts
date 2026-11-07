@@ -60,8 +60,10 @@ export const MODE_CONFIG: Record<
     defaultTime: 10,
     revealDelay: 1800,
   },
+  // Shown to players as "Legendary". The key stays superHard because it is sent in room messages,
+  // so renaming it would break rooms until the Worker is redeployed.
   superHard: {
-    label: "Super Hard",
+    label: "Legendary",
     description: "3 stacked · pick 3 of 8",
     optionCount: 8,
     answerCount: 3,

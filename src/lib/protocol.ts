@@ -50,7 +50,8 @@ export type RoomGame = {
   myAnswer: PlayerAnswer | null;
 };
 
-// Something that happened in the room, shown to everyone as a line in the chat log.
+// Something that happened in the room, shown to everyone as a line in the chat log. A "rename" is any
+// change to a name tag: a new name, a new aura, or both (an aura on its own keeps the same name).
 export type RoomEventDetail =
   | {
       kind: "join";

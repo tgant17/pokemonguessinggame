@@ -90,7 +90,7 @@ export class RoomState {
         this.players.set(id, { id, name: message.name, partner: message.partner, profile: message.profile });
         if (!this.hostId) this.hostId = id;
         // Joining again (say, a double-tapped button) isn't news, unless it changed the name.
-        if (existing) this.logRename(existing, message.name, message.profile.color);
+        if (existing) this.logTagChange(existing, message.name, message.profile.color);
         else {
           const { name, partner, profile } = message;
           this.log({ kind: "join", playerId: id, name, partner, color: profile.color });
@@ -101,6 +101,7 @@ export class RoomState {
         const player = this.players.get(id);
         if (!player) return "Join the room first.";
         this.players.set(id, { ...player, profile: message.profile });
+        this.logTagChange(player, player.name, message.profile.color);
         break;
       }
       case "rename": {
@@ -108,7 +109,7 @@ export class RoomState {
         if (!player) return "Join the room first.";
         const profile = message.profile ?? player.profile;
         this.players.set(id, { ...player, name: message.name, profile });
-        this.logRename(player, message.name, profile.color);
+        this.logTagChange(player, message.name, profile.color);
         break;
       }
       case "start": {
@@ -236,10 +237,12 @@ export class RoomState {
     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
   }
 
-  // Names are only sent once the player confirms them, so every change is news of its own.
-  private logRename(player: Player, to: string, toColor: string | null) {
-    if (player.name === to) return;
-    this.log({ kind: "rename", playerId: player.id, from: player.name, to, fromColor: player.profile.color, toColor });
+  // A new name, a new aura, or both. They're only sent once the player confirms them, so every change is
+  // news of its own.
+  private logTagChange(player: Player, to: string, toColor: string | null) {
+    const fromColor = player.profile.color;
+    if (player.name === to && fromColor === toColor) return;
+    this.log({ kind: "rename", playerId: player.id, from: player.name, to, fromColor, toColor });
   }
 
   private enterWaiting(now: number) {

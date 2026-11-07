@@ -24,9 +24,6 @@ export const READY_TIMEOUT_MS = 4000;
 export const REJOIN_GRACE_MS = 3000;
 // The chat log keeps this many joins and renames at most; older ones drop off the top.
 export const MAX_EVENTS = 50;
-// Name changes by one player this close together count as one, so editing a name letter by letter
-// shows up as "Ash is now Red" rather than a line per keystroke.
-export const RENAME_MERGE_MS = 15_000;
 
 type Player = { id: string; name: string; partner: PokemonSprite | null; profile: Profile };
 
@@ -50,7 +47,6 @@ export class RoomState {
   // Joins and renames for the chat log, oldest first. Each game starts a fresh log, like everyone's screen does.
   private events: RoomEvent[] = [];
   private nextEventId = 1;
-  private lastEventAt = 0;
   // Goes up whenever the chat log changes, so the server only resends the log when there's something new.
   private version = 0;
   // When each player last posted to the chat, newest last, for the flood limit.
@@ -108,21 +104,26 @@ export class RoomState {
         this.players.set(id, { id, name: message.name, partner: message.partner, profile: message.profile });
         if (!this.hostId) this.hostId = id;
         // Joining again (say, a double-tapped button) isn't news, unless it changed the name.
-        if (existing) this.logRename(id, existing.name, message.name, now);
-        else this.log({ kind: "join", playerId: id, name: message.name, partner: message.partner }, now);
+        if (existing) this.logTagChange(existing, message.name, message.profile.color);
+        else {
+          const { name, partner, profile } = message;
+          this.log({ kind: "join", playerId: id, name, partner, color: profile.color });
+        }
         break;
       }
       case "profile": {
         const player = this.players.get(id);
         if (!player) return "Join the room first.";
         this.players.set(id, { ...player, profile: message.profile });
+        this.logTagChange(player, player.name, message.profile.color);
         break;
       }
       case "rename": {
         const player = this.players.get(id);
         if (!player) return "Join the room first.";
-        this.players.set(id, { ...player, name: message.name });
-        this.logRename(id, player.name, message.name, now);
+        const profile = message.profile ?? player.profile;
+        this.players.set(id, { ...player, name: message.name, profile });
+        this.logTagChange(player, message.name, profile.color);
         break;
       }
       case "settings": {
@@ -168,8 +169,8 @@ export class RoomState {
         const recent = (this.posts.get(id) ?? []).filter((at) => now - at < CHAT_WINDOW_MS);
         if (recent.length >= CHAT_BURST) return CHAT_TOO_FAST;
         this.posts.set(id, [...recent, now]);
-        if (message.type === "chat") this.log({ kind: "chat", playerId: id, name: player.name, text: message.text }, now);
-        else this.log({ kind: "drawing", playerId: id, name: player.name, drawing: message.drawing }, now);
+        if (message.type === "chat") this.log({ kind: "chat", playerId: id, name: player.name, text: message.text });
+        else this.log({ kind: "drawing", playerId: id, name: player.name, drawing: message.drawing });
         break;
       }
       case "answer": {
@@ -260,32 +261,19 @@ export class RoomState {
     return this.game && this.game.phase !== "finished" ? this.game.roundIndex : null;
   }
 
-  private log(detail: RoomEventDetail, now: number) {
+  private log(detail: RoomEventDetail) {
     this.events.push({ ...detail, id: this.nextEventId, round: this.logRound() });
     this.nextEventId += 1;
     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
-    this.lastEventAt = now;
     this.version += 1;
   }
 
-  private logRename(id: string, from: string, to: string, now: number) {
-    if (from === to) return;
-    const last = this.events[this.events.length - 1];
-    if (
-      last?.kind === "rename" &&
-      last.playerId === id &&
-      last.round === this.logRound() &&
-      now - this.lastEventAt < RENAME_MERGE_MS
-    ) {
-      // Still the same edit: keep one line from the name they started with to the latest one,
-      // or none at all if they've typed their way back to where they started.
-      if (last.from === to) this.events.pop();
-      else this.events[this.events.length - 1] = { ...last, to };
-      this.lastEventAt = now;
-      this.version += 1;
-      return;
-    }
-    this.log({ kind: "rename", playerId: id, from, to }, now);
+  // A new name, a new aura, or both. They're only sent once the player confirms them, so every change is
+  // news of its own.
+  private logTagChange(player: Player, to: string, toColor: string | null) {
+    const fromColor = player.profile.color;
+    if (player.name === to && fromColor === toColor) return;
+    this.log({ kind: "rename", playerId: player.id, from: player.name, to, fromColor, toColor });
   }
 
   private enterWaiting(now: number) {

@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState, type KeyboardEvent, type PointerEvent } from "react";
-import { NameTag, SketchFrame, SketchPanel } from "@/components/sketch";
+import { choiceButtonClass } from "@/components/controls";
+import { NameTag, SketchFrame, SketchIcon, SketchPanel } from "@/components/sketch";
+import { randomMashupName } from "@/lib/mashup";
 import { WHEEL_LIGHTNESS, hexToHsl, hslToHex, wheelColorAt } from "@/lib/profile";
 import { MAX_NAME_LENGTH, clampName, cleanName, nameLength } from "@/lib/protocol";
 
@@ -93,48 +95,65 @@ type NameTagEditorProps = {
   icon?: string | null;
   // The name being edited, which may be empty.
   name: string;
-  // Called as you type, with each usable name. Changes show right away; a room is updated once typing settles.
+  // Called with the new name and color once they're confirmed with the check (or Enter), not as you edit.
   onNameChange: (name: string) => void;
   color: string | null;
   onColorChange: (hex: string) => void;
+  // For the die that rolls a random name; it stays disabled until the list has loaded.
+  pokemonNames: readonly string[];
   className?: string;
 };
 
 /**
  * Your own name tag, with a small color-wheel dot inside it. Tapping it pops open a box to change your name
- * and color; tapping anywhere else, pressing Escape, or pressing Enter in the name box closes it.
+ * and color. The tag previews the color as you pick it, but neither takes until you tick the check (or press
+ * Enter), so a room hears about it once; tapping anywhere else or pressing Escape puts back the color you had.
  */
-export function NameTagEditor({ label, icon, name, onNameChange, color, onColorChange, className = "" }: NameTagEditorProps) {
+export function NameTagEditor({
+  label,
+  icon,
+  name,
+  onNameChange,
+  color,
+  onColorChange,
+  pokemonNames,
+  className = "",
+}: NameTagEditorProps) {
   const auraLabelId = useId();
   const counterId = useId();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
-  const nameAtOpen = useRef("");
+  const [colorDraft, setColorDraft] = useState<string | null>(null);
+  // Counts rolls so the die can tumble again on every one.
+  const [rolls, setRolls] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const usableDraft = cleanName(draft);
 
   const openEditor = () => {
-    nameAtOpen.current = name;
     setDraft(clampName(name));
+    setColorDraft(color);
     setOpen(true);
   };
 
-  const close = useCallback(
-    (refocus: boolean) => {
-      // A name box left empty puts back the name you had, rather than keeping the last letter you deleted down to.
-      if (!cleanName(draft) && name !== nameAtOpen.current) onNameChange(nameAtOpen.current);
-      setOpen(false);
-      if (refocus) buttonRef.current?.focus();
-    },
-    [draft, name, onNameChange],
-  );
+  const close = useCallback((refocus: boolean) => {
+    setOpen(false);
+    if (refocus) buttonRef.current?.focus();
+  }, []);
 
-  const changeName = (value: string) => {
-    const next = clampName(value);
-    setDraft(next);
-    const usable = cleanName(next);
-    if (usable) onNameChange(usable);
+  const save = () => {
+    if (!usableDraft) return;
+    if (usableDraft !== name) onNameChange(usableDraft);
+    if (colorDraft && colorDraft !== color) onColorChange(colorDraft);
+    close(true);
+  };
+
+  const rollName = () => {
+    const rolled = randomMashupName(pokemonNames);
+    if (!rolled) return;
+    setRolls((count) => count + 1);
+    setDraft(rolled.name);
   };
 
   useEffect(() => {
@@ -172,7 +191,7 @@ export function NameTagEditor({ label, icon, name, onNameChange, color, onColorC
         onClick={() => (open ? close(false) : openEditor())}
         className="group flex max-w-full rounded-[8px] transition-transform hover:-translate-y-px focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:translate-y-px"
       >
-        <NameTag label={label} color={color} icon={icon} size="md" className="max-w-full pr-1.5">
+        <NameTag label={label} color={open ? colorDraft : color} icon={icon} size="md" className="max-w-full pr-1.5">
           <span
             aria-hidden="true"
             className={`ml-2 h-4 w-4 shrink-0 rounded-full border-[1.5px] border-ink transition-transform duration-200 group-hover:rotate-45 ${
@@ -185,36 +204,74 @@ export function NameTagEditor({ label, icon, name, onNameChange, color, onColorC
 
       {open && (
         // Anchored to the tag's left edge: the tag sits at the left of the screen, so this stays on-screen on phones.
-        <div role="dialog" aria-label="Your name tag" className="absolute left-0 top-full z-20 mt-2 w-56">
+        // Kept narrower than the screen so the check at its right edge never falls off a small phone.
+        <div
+          role="dialog"
+          aria-label="Your name tag"
+          className="absolute left-0 top-full z-20 mt-2 w-[17.5rem] max-w-[calc(100vw-3rem)]"
+        >
           <SketchPanel radius={16} className="flex flex-col gap-3 p-3.5">
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                close(true);
+                save();
               }}
-              className="relative isolate flex items-center gap-2 rounded-[12px] pl-3 pr-2.5 focus-within:outline-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink"
+              className="flex items-center gap-1.5"
             >
-              <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
-              <input
-                ref={inputRef}
-                value={draft}
-                onChange={(event) => changeName(event.target.value)}
-                aria-label="Your name"
-                aria-describedby={counterId}
-                placeholder="Your name"
-                autoComplete="nickname"
-                autoCapitalize="words"
-                spellCheck={false}
-                enterKeyHint="done"
-                className="h-10 min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none"
-              />
-              <span id={counterId} className="shrink-0 text-xs tabular-nums text-ink-soft">
-                {nameLength(draft)}/{MAX_NAME_LENGTH}
-                <span className="sr-only"> characters</span>
-              </span>
+              <div className="relative isolate flex min-w-0 flex-1 items-center gap-2 rounded-[12px] pl-3 pr-2.5 focus-within:outline-dashed focus-within:outline-2 focus-within:outline-offset-2 focus-within:outline-ink">
+                <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
+                <input
+                  ref={inputRef}
+                  value={draft}
+                  onChange={(event) => setDraft(clampName(event.target.value))}
+                  aria-label="Your name"
+                  aria-describedby={counterId}
+                  placeholder="Your name"
+                  autoComplete="nickname"
+                  autoCapitalize="words"
+                  spellCheck={false}
+                  enterKeyHint="done"
+                  className="h-10 min-w-0 flex-1 bg-transparent text-base text-ink placeholder:text-ink-faint focus:outline-none"
+                />
+                <span id={counterId} className="shrink-0 text-xs tabular-nums text-ink-soft">
+                  {nameLength(draft)}/{MAX_NAME_LENGTH}
+                  <span className="sr-only"> characters</span>
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={rollName}
+                disabled={!pokemonNames.length}
+                aria-label="Random name"
+                title="Random name: two Pokémon mashed together"
+                className={`${choiceButtonClass(false)} flex h-10 w-10 shrink-0 items-center justify-center disabled:text-ink-faint`}
+              >
+                <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
+                <span key={rolls} className={`flex ${rolls ? "dice-roll" : ""}`}>
+                  <SketchIcon name="dice" className="h-5 w-5" strokeWidth={2.2} />
+                </span>
+              </button>
+              {/* An empty name box can't be saved; Escape or tapping away keeps the old name and aura instead. */}
+              <button
+                type="submit"
+                disabled={!usableDraft}
+                aria-label="Save name and aura"
+                title="Save name and aura"
+                className={`${choiceButtonClass(!!usableDraft)} flex h-10 w-10 shrink-0 items-center justify-center disabled:text-ink-faint`}
+              >
+                <SketchFrame
+                  radius={10}
+                  wobble={0.8}
+                  strokeWidth={2.2}
+                  fill={usableDraft ? "ink" : "paper"}
+                  stroke={usableDraft ? "var(--ink)" : "var(--ink-faint)"}
+                  dotted={!usableDraft}
+                />
+                <SketchIcon name="check" className="h-5 w-5" strokeWidth={2.8} />
+              </button>
             </form>
             <div className="flex flex-col items-center gap-2">
-              <ColorWheel color={color} onChange={onColorChange} size={120} labelledBy={auraLabelId} />
+              <ColorWheel color={colorDraft} onChange={setColorDraft} size={120} labelledBy={auraLabelId} />
               <p id={auraLabelId} className="font-hand text-xl font-bold leading-none">
                 Your aura
               </p>

@@ -18,13 +18,7 @@ import {
   parseClientMessage,
   type ClientMessage,
 } from "./protocol.ts";
-import {
-  MAX_EVENTS,
-  READY_TIMEOUT_MS,
-  RENAME_MERGE_MS,
-  REJOIN_GRACE_MS,
-  RoomState,
-} from "./room.ts";
+import { MAX_EVENTS, READY_TIMEOUT_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
 
 const mon = (id: number): PokemonSprite => ({
   id,
@@ -370,6 +364,11 @@ test("players can change their name after joining, and everyone sees it", () => 
   assert.deepEqual(parse({ type: "rename", name: "  Brock \n of Pewter " }), { type: "rename", name: "Brock of P" });
   assert.equal(parse({ type: "rename", name: "   " }), null);
   assert.equal(parse({ type: "rename", name: 42 }), null);
+  assert.deepEqual(
+    parse({ type: "rename", name: "Red", profile: { color: "#0088ff" } }),
+    { type: "rename", name: "Red", profile: { color: "#0088ff" } },
+    "a new aura can come along with the name",
+  );
 });
 
 // The chat log as "Ash joined" / "Ash→Red" / "Ash: hi" / "Ash drew 2 strokes" lines, with the round each
@@ -409,25 +408,61 @@ test("joins and name changes go in everyone's chat log, in order", () => {
   assert.equal(chatLog(room).length, 4);
 });
 
-test("editing a name letter by letter shows up as one change", () => {
+test("a join line keeps the aura the player joined with", () => {
   const room = twoPlayerRoom();
-  for (const [name, at] of [["As", 0], ["A", 400], ["R", 900], ["Re", 1200], ["Red", 1500]] as const) {
-    room.handle("ash", { type: "rename", name }, T0 + at);
-  }
-  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red"]);
+  room.connect("brock");
+  room.handle("brock", { type: "join", name: "Brock", partner: mon(74), profile: { color: "#ff8800" } }, T0);
+  room.handle("brock", { type: "profile", profile: { color: "#0088ff" } }, T0 + 1000);
+  const line = room.snapshotFor("ash", T0 + 1000).events?.find((event) => event.kind === "join" && event.playerId === "brock");
+  assert.equal(line?.kind === "join" && line.color, "#ff8800");
+});
 
-  // Typing back to the name you started with takes the line away again.
-  room.handle("ash", { type: "rename", name: "Ash" }, T0 + 2000);
-  assert.deepEqual(chatLog(room).slice(2), []);
+test("a rename line shows the old name in its old aura and the new name in its new one", () => {
+  const room = twoPlayerRoom();
+  room.handle("ash", { type: "profile", profile: { color: "#ff8800" } }, T0);
+  room.handle("ash", { type: "rename", name: "Red", profile: { color: "#0088ff" } }, T0);
+  const auras = () => {
+    const line = room.snapshotFor("misty", T0).events?.at(-1);
+    return line?.kind === "rename" && [line.from, line.fromColor, line.to, line.toColor];
+  };
+  assert.deepEqual(auras(), ["Ash", "#ff8800", "Red", "#0088ff"]);
+  const ash = room.snapshotFor("misty", T0).players.find((player) => player.id === "ash");
+  assert.equal(ash?.profile?.color, "#0088ff", "the new aura takes along with the name");
 
-  // A change long after the last one is news of its own...
-  room.handle("ash", { type: "rename", name: "Red" }, T0 + 3000);
-  room.handle("ash", { type: "rename", name: "Blue" }, T0 + 3000 + RENAME_MERGE_MS);
-  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red", "lobby: Red→Blue"]);
-  // ...and so is one after something else happened in between.
-  room.handle("misty", { type: "rename", name: "Kasumi" }, T0 + 3000 + RENAME_MERGE_MS);
-  room.handle("ash", { type: "rename", name: "Green" }, T0 + 3000 + RENAME_MERGE_MS);
-  assert.deepEqual(chatLog(room).slice(4), ["lobby: Misty→Kasumi", "lobby: Blue→Green"]);
+  // A rename on its own keeps the aura.
+  room.handle("ash", { type: "rename", name: "Ash" }, T0);
+  assert.deepEqual(auras(), ["Red", "#0088ff", "Ash", "#0088ff"]);
+});
+
+test("a new aura on its own gets a line too, with the same name in both auras", () => {
+  const room = twoPlayerRoom();
+  room.handle("ash", { type: "profile", profile: { color: "#ff8800" } }, T0);
+  room.handle("ash", { type: "profile", profile: { color: "#0088ff" } }, T0);
+  const lines = (room.snapshotFor("misty", T0).events ?? []).flatMap((event) =>
+    event.kind === "rename" ? [[event.from, event.fromColor, event.to, event.toColor]] : [],
+  );
+  assert.deepEqual(lines, [
+    ["Ash", null, "Ash", "#ff8800"],
+    ["Ash", "#ff8800", "Ash", "#0088ff"],
+  ]);
+
+  // Sending the aura they already have isn't news.
+  room.handle("ash", { type: "profile", profile: { color: "#0088ff" } }, T0);
+  assert.equal(chatLog(room).length, 4);
+
+  // Nor is joining again with the same tag, but joining again in a new aura is.
+  join(room, "misty", "Misty");
+  assert.equal(chatLog(room).length, 4);
+  room.handle("misty", { type: "join", name: "Misty", partner: mon(120), profile: { color: "#00aa44" } }, T0);
+  assert.deepEqual(chatLog(room).at(-1), "lobby: Misty→Misty");
+});
+
+test("every confirmed name change gets its own line, however quickly they come", () => {
+  const room = twoPlayerRoom();
+  room.handle("ash", { type: "rename", name: "Red" }, T0);
+  room.handle("ash", { type: "rename", name: "Blue" }, T0 + 100);
+  room.handle("ash", { type: "rename", name: "Ash" }, T0 + 200);
+  assert.deepEqual(chatLog(room).slice(2), ["lobby: Ash→Red", "lobby: Red→Blue", "lobby: Blue→Ash"]);
 });
 
 test("the chat log notes the round things happened in, and starts over each game", () => {
@@ -550,7 +585,8 @@ test("the log is only resent when it changes", () => {
   assert.equal(changes(() => ready(room, "ash", T0)), false);
   assert.equal(changes(() => ready(room, "misty", T0)), false);
   assert.equal(changes(() => answer(room, "ash", [1], T0 + 500)), false);
-  assert.equal(changes(() => room.handle("ash", { type: "profile", profile: { color: "#ff0000" } }, T0)), false);
+  assert.equal(changes(() => room.handle("ash", { type: "profile", profile: { color: "#ff0000" } }, T0)), true, "a new aura");
+  assert.equal(changes(() => room.handle("ash", { type: "profile", profile: { color: "#ff0000" } }, T0)), false, "the same one again");
   assert.equal(changes(() => say(room, "ash", "too much", T0 + 600) && undefined), true);
 });
 

@@ -233,26 +233,18 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     [inRoom, myName, room?.me?.name, room?.me?.partner, profile],
   );
 
-  // Keep the room's copy of your color in step with what you pick here.
-  const { updateProfile } = roomGame;
+  // Keep the room's copy of your name and aura in step with what you save on your name tag. A new name goes
+  // with your aura, so its line in the chat log can show the old tag and the new one.
+  const { rename, updateProfile } = roomGame;
+  const roomName = room?.me?.name;
   const roomProfile = room?.me?.profile;
   useEffect(() => {
-    if (!roomProfile || !profile.color) return;
-    if (roomProfile.color === profile.color) return;
-    // Dragging across the wheel changes the color many times a second; send only where it settles.
-    const timer = setTimeout(() => updateProfile(profile), 150);
-    return () => clearTimeout(timer);
-  }, [roomProfile, profile, updateProfile]);
-
-  // Same for your name, which can be changed after joining.
-  const { rename } = roomGame;
-  const roomName = room?.me?.name;
-  useEffect(() => {
-    if (!roomName || !myName || roomName === myName) return;
-    // Typing changes the name on every key; send only once it settles.
-    const timer = setTimeout(() => rename(myName), 300);
-    return () => clearTimeout(timer);
-  }, [roomName, myName, rename]);
+    if (!roomName) return;
+    if (myName && roomName !== myName) rename(myName, profile.color ? profile : undefined);
+    // An aura on its own (and, on room servers that predate renames carrying one, the aura after a rename).
+    // Servers older still don't keep auras at all, so there's nothing to send them.
+    else if (roomProfile && profile.color && roomProfile.color !== profile.color) updateProfile(profile);
+  }, [roomName, roomProfile, myName, profile, rename, updateProfile]);
   useEffect(() => {
     tagRef.current = currentTag;
   }, [currentTag]);
@@ -718,13 +710,20 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     const player = room?.players.find((candidate) => candidate.id === playerId);
     return {
       label: name,
-      color: playerId === room?.you ? profile.color : player?.profile.color,
+      // Room servers that predate profiles don't send one, so read it carefully (see PlayerInfo).
+      color: playerId === room?.you ? profile.color : player?.profile?.color,
       icon: player?.partner ? pokemonIconUrl(player.partner.id) : null,
     };
   };
 
   // What happened in a room, in the chat log: joins, renames, and what players wrote or drew.
   const renderRoomEvent = (event: RoomEvent) => {
+    // Lines keep the auras players had at the time, even after they pick new ones. Room servers that predate
+    // that don't send them, so there a line falls back to the player's current aura.
+    const currentColor = () =>
+      event.playerId === room?.you
+        ? profile.color
+        : room?.players.find((player) => player.id === event.playerId)?.profile?.color;
     if (event.kind === "chat" || event.kind === "drawing") {
       const tag = playerTag(event.playerId, event.name);
       const mine = event.playerId === room?.you;
@@ -746,15 +745,15 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     if (event.kind === "rename") {
       return (
         <Notice key={`event-${event.id}`}>
-          <span className="text-ink">{event.from}</span> is now <span className="text-ink">{event.to}</span>
+          <span className="inline-flex flex-wrap items-center justify-center gap-1.5">
+            <NameTag label={event.from} color={event.fromColor !== undefined ? event.fromColor : currentColor()} />
+            is now
+            <NameTag label={event.to} color={event.toColor !== undefined ? event.toColor : currentColor()} />
+          </span>
         </Notice>
       );
     }
-    // Your own tag shows the color you've picked right away, before the room echoes it back.
-    const color =
-      event.playerId === room?.you
-        ? profile.color
-        : room?.players.find((player) => player.id === event.playerId)?.profile?.color;
+    const color = event.color !== undefined ? event.color : currentColor();
     return (
       <div key={`event-${event.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
         <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
@@ -1428,6 +1427,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 onNameChange={roomGame.saveName}
                 color={profile.color}
                 onColorChange={(color) => setProfile({ color })}
+                pokemonNames={pokemonNames}
                 className="max-w-[65%]"
               />
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>

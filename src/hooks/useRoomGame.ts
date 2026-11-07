@@ -77,7 +77,7 @@ export type RoomController = GameController & {
   savedName: string;
   saveName: (name: string) => void;
   join: (name: string, partner: PokemonSprite, profile: Profile) => void;
-  rename: (name: string) => void;
+  rename: (name: string, profile?: Profile) => void;
   updateProfile: (profile: Profile) => void;
   // Host only: shows everyone the options picked for the next game.
   shareSettings: (settings: GameSettings) => void;
@@ -262,7 +262,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     [send, saveName, code],
   );
 
-  const rename = useCallback((name: string) => send({ type: "rename", name }), [send]);
+  const rename = useCallback((name: string, profile?: Profile) => send({ type: "rename", name, profile }), [send]);
 
   const updateProfile = useCallback((profile: Profile) => send({ type: "profile", profile }), [send]);
 

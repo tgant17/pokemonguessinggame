@@ -1271,6 +1271,14 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             <div ref={feedRef} className="feed-scroll min-h-0 flex-1 overflow-y-auto rounded-[12px] px-2 pb-3 pt-1 sm:px-3">
               <div className="flex min-h-full flex-col justify-end gap-2.5">{renderFeed()}</div>
             </div>
+            {showIntro && viewGameId !== null && (
+              <CountdownIntro
+                key={viewGameId}
+                caption={gameSummary}
+                onGo={() => setIntroGo(viewGameId)}
+                onDone={() => setIntroDone(viewGameId)}
+              />
+            )}
           </SketchPanel>
 
           {renderHinge()}
@@ -1308,15 +1316,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
         <p className="text-center text-xs text-ink-soft">Sprite data fetched live from the PokéAPI sprites collection.</p>
       </div>
-
-      {showIntro && viewGameId !== null && (
-        <CountdownIntro
-          key={viewGameId}
-          caption={gameSummary}
-          onGo={() => setIntroGo(viewGameId)}
-          onDone={() => setIntroDone(viewGameId)}
-        />
-      )}
     </main>
   );
 }

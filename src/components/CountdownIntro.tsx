@@ -24,8 +24,7 @@ const GO_BURST = ["M-6 8L-12 1", "M-8 44L-14 45", "M-4 80L-10 86", "M134 6L140 -
 
 const STEPS = [3, 2, 1] as const;
 const STEP_MS = INTRO_COUNTDOWN_MS / STEPS.length;
-// How long "Go!" stays up while it fades away. The round has already started by then, so it's short
-// and lets taps through to the answers underneath.
+// How long "Go!" stays up while it fades away. The round has already started by then, so it's short.
 const GO_MS = 650;
 // How long each number takes to shrink away before the next one replaces it.
 const EXIT_MS = 160;
@@ -48,11 +47,18 @@ type CountdownIntroProps = {
   onDone: () => void;
 };
 
-// The 3-2-1 that opens every game, drawn over the whole screen.
+// The 3-2-1 that opens every game, drawn over the top screen. Its parent needs to be positioned.
 export function CountdownIntro({ caption, onGo, onDone }: CountdownIntroProps) {
   // 0, 1, 2 show 3, 2, 1; 3 is "Go!".
   const [step, setStep] = useState(0);
   const go = step === STEPS.length;
+
+  // Starting a game from the bottom of a long setup screen can leave the top screen scrolled out of view.
+  const rootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    rootRef.current?.scrollIntoView({ block: "nearest", behavior: reduceMotion ? "auto" : "smooth" });
+  }, []);
 
   // The timers run once from when the countdown appears, so re-renders mustn't restart them.
   const callbacks = useRef({ onGo, onDone });
@@ -77,16 +83,21 @@ export function CountdownIntro({ caption, onGo, onDone }: CountdownIntroProps) {
 
   return (
     <div
-      className={`fixed inset-0 z-50 isolate flex flex-col items-center justify-center gap-5 px-4 ${go ? "pointer-events-none" : ""}`}
+      ref={rootRef}
+      className={`absolute inset-0 z-10 isolate flex flex-col items-center justify-center gap-4 px-4 ${go ? "pointer-events-none" : ""}`}
     >
-      <div aria-hidden="true" className={`countdown-backdrop absolute inset-0 -z-10 ${go ? "countdown-backdrop-out" : ""}`} />
+      {/* Inset and rounded so it stays inside the box's hand-drawn outline. */}
+      <div
+        aria-hidden="true"
+        className={`countdown-backdrop absolute inset-[7px] -z-10 rounded-[14px] ${go ? "countdown-backdrop-out" : ""}`}
+      />
       <span role="status" aria-live="assertive" className="sr-only">
         {label}
       </span>
 
       {go ? (
-        <div aria-hidden="true" className="countdown-go flex h-44 items-center justify-center sm:h-52">
-          <svg viewBox="-20 -14 170 116" className="h-36 w-auto overflow-visible text-ink sm:h-44">
+        <div aria-hidden="true" className="countdown-go flex h-40 items-center justify-center sm:h-48">
+          <svg viewBox="-20 -14 170 116" className="h-32 w-auto overflow-visible text-ink sm:h-40">
             {GO_STROKES.map((d) => (
               <path key={d} d={d} fill="none" stroke="currentColor" strokeWidth={9} strokeLinecap="round" strokeLinejoin="round" />
             ))}
@@ -109,14 +120,14 @@ export function CountdownIntro({ caption, onGo, onDone }: CountdownIntroProps) {
         <div
           key={step}
           aria-hidden="true"
-          className="countdown-step relative isolate flex h-44 w-44 items-center justify-center sm:h-52 sm:w-52"
+          className="countdown-step relative isolate flex h-40 w-40 items-center justify-center sm:h-48 sm:w-48"
           style={{ "--countdown-exit-at": `${STEP_MS - EXIT_MS}ms` } as CSSProperties}
         >
           {/* A fresh circle for every number, re-traced a few times a second while it's up. */}
           <SketchFrame radius={999} wobble={2.4} strokeWidth={4.5} fill="paper" seed={step * 31 + (boil % 3)} draw />
           <svg
             viewBox="0 0 100 100"
-            className="h-28 w-28 overflow-visible text-ink sm:h-32 sm:w-32"
+            className="h-24 w-24 overflow-visible text-ink sm:h-28 sm:w-28"
             style={{ transform: `translate(${dx}px, ${dy}px) rotate(${angle}deg)` }}
           >
             {DIGIT_STROKES[STEPS[step]].map((d) => (

@@ -284,7 +284,18 @@ export function SketchFrame({
   );
 }
 
-type IconName = "check" | "cross" | "clock" | "bolt" | "send" | "pokeball" | "star" | "arrowDown" | "dice";
+type IconName =
+  | "check"
+  | "cross"
+  | "clock"
+  | "bolt"
+  | "send"
+  | "pokeball"
+  | "star"
+  | "arrowDown"
+  | "dice"
+  | "pencil"
+  | "undo";
 
 // Hand-authored strokes on a 24×24 grid, drawn with round caps like the outlines.
 const ICON_STROKES: Record<IconName, string[]> = {
@@ -309,6 +320,14 @@ const ICON_STROKES: Record<IconName, string[]> = {
     "M9 8.4a.6.6 0 1 1-1.2 0 .6.6 0 1 1 1.2 0",
     "M12.6 12a.6.6 0 1 1-1.2 0 .6.6 0 1 1 1.2 0",
     "M16.2 15.6a.6.6 0 1 1-1.2 0 .6.6 0 1 1 1.2 0",
+  ],
+  pencil: [
+    "M4.4 19.6l1.1-4.3L15.7 5.1c1-1 2.4-1 3.3-.1.9.9.9 2.3 0 3.3L8.8 18.5l-4.4 1.1z",
+    "M13.8 7.1c1.1 1 2.1 2 3.1 3.1",
+  ],
+  undo: [
+    "M9.3 5.4C7.8 6.8 6.3 8.3 4.9 9.8c1.4 1.4 2.9 2.8 4.3 4.3",
+    "M5.4 9.8c3.6-.1 7-.2 10 .1 2.7.3 4.2 2.2 4.1 4.6-.1 2.5-1.9 4.3-4.6 4.4-2 .1-3.9.1-5.8 0",
   ],
 };
 

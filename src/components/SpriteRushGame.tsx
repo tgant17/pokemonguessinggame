@@ -620,11 +620,14 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         </Notice>
       );
     }
-    // Your own tag shows the color you've picked right away, before the room echoes it back.
+    // The line keeps the aura the player joined with, even after they pick a new one. Room servers that
+    // predate that don't send it, so there it falls back to the player's current aura.
     const color =
-      event.playerId === room?.you
-        ? profile.color
-        : room?.players.find((player) => player.id === event.playerId)?.profile.color;
+      event.color !== undefined
+        ? event.color
+        : event.playerId === room?.you
+          ? profile.color
+          : room?.players.find((player) => player.id === event.playerId)?.profile.color;
     return (
       <div key={`event-${event.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
         <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />

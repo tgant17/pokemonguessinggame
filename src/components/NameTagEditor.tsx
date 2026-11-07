@@ -106,8 +106,8 @@ type NameTagEditorProps = {
 
 /**
  * Your own name tag, with a small color-wheel dot inside it. Tapping it pops open a box to change your name
- * and color. Neither takes until you tick the check (or press Enter), so a room hears about it once;
- * tapping anywhere else or pressing Escape closes the box and keeps the name and color you had.
+ * and color. The tag previews the color as you pick it, but neither takes until you tick the check (or press
+ * Enter), so a room hears about it once; tapping anywhere else or pressing Escape puts back the color you had.
  */
 export function NameTagEditor({
   label,
@@ -191,7 +191,7 @@ export function NameTagEditor({
         onClick={() => (open ? close(false) : openEditor())}
         className="group flex max-w-full rounded-[8px] transition-transform hover:-translate-y-px focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:translate-y-px"
       >
-        <NameTag label={label} color={color} icon={icon} size="md" className="max-w-full pr-1.5">
+        <NameTag label={label} color={open ? colorDraft : color} icon={icon} size="md" className="max-w-full pr-1.5">
           <span
             aria-hidden="true"
             className={`ml-2 h-4 w-4 shrink-0 rounded-full border-[1.5px] border-ink transition-transform duration-200 group-hover:rotate-45 ${

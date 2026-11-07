@@ -353,6 +353,15 @@ test("joins and name changes go in everyone's chat log, in order", () => {
   assert.equal(chatLog(room).length, 4);
 });
 
+test("a join line keeps the aura the player joined with", () => {
+  const room = twoPlayerRoom();
+  room.connect("brock");
+  room.handle("brock", { type: "join", name: "Brock", partner: mon(74), profile: { color: "#ff8800" } }, T0);
+  room.handle("brock", { type: "profile", profile: { color: "#0088ff" } }, T0 + 1000);
+  const line = room.snapshotFor("ash", T0 + 1000).events?.at(-1);
+  assert.equal(line?.kind === "join" && line.color, "#ff8800");
+});
+
 test("every confirmed name change gets its own line, however quickly they come", () => {
   const room = twoPlayerRoom();
   room.handle("ash", { type: "rename", name: "Red" }, T0);

@@ -667,7 +667,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     const color =
       event.playerId === room?.you
         ? profile.color
-        : room?.players.find((player) => player.id === event.playerId)?.profile.color;
+        : room?.players.find((player) => player.id === event.playerId)?.profile?.color;
     return (
       <div key={`event-${event.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
         <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
@@ -1175,7 +1175,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   {/* Your own tag shows your name and color right away, before the room echoes them back. */}
                   <NameTag
                     label={isYou ? (myName ?? player.name) : player.name}
-                    color={(isYou ? profile : player.profile).color}
+                    color={isYou ? profile.color : player.profile?.color}
                   />
                   <span className="shrink-0 whitespace-nowrap text-xs text-ink-soft">
                     {isYou && "you"}

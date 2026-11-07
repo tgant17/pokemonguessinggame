@@ -24,8 +24,9 @@ export type PlayerInfo = {
   name: string;
   // The Pokémon this player picked to play alongside them (null for clients that predate partners).
   partner: PokemonSprite | null;
-  // The name color this player picked, shown wherever their name appears.
-  profile: Profile;
+  // The name color this player picked, shown wherever their name appears. Missing from room servers that
+  // predate profiles, so the page must cope without it rather than crash when it draws other players.
+  profile?: Profile;
   connected: boolean;
   score: number;
   // True once this player has locked in an answer for the current round.

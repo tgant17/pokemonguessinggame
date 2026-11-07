@@ -1368,7 +1368,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         <div>
           {/* Top screen: the chat log. Between games it grows with what's in it (at first just the
               welcome) up to a cap, then scrolls; once rounds start it locks to a fixed height so the
-              answer buttons below don't shift as messages arrive. In a room, the composer sits under it. */}
+              answer buttons below don't shift as messages arrive. In a room, the composer sits under it between
+              games; it's hidden while a game runs so nobody is typing or drawing instead of answering. */}
           <SketchPanel fill="chrome" className="flex flex-col p-2.5">
             <div
               className={`flex min-h-0 flex-col ${
@@ -1397,7 +1398,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 )}
               </div>
             </div>
-            {room?.joined && (
+            {room?.joined && gameState !== "playing" && (
               <div className="px-2 pb-1">
                 <SketchLine className="mb-2.5 h-1.5 text-ink" />
                 <ChatComposer

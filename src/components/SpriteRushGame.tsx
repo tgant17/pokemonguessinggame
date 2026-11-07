@@ -1208,8 +1208,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             roomCode={roomCode}
             pokemonNames={pokemonNames}
             savedName={roomGame.savedName}
-            color={profile.color}
-            onColorChange={(color) => setProfile({ color })}
             roomNote={
               !room
                 ? ""
@@ -1218,7 +1216,11 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   : `${room.players.length} player${room.players.length === 1 ? "" : "s"} here`
             }
             connected={roomGame.connected}
-            onJoin={(name, partner) => roomGame.join(name, partner, profile)}
+            onJoin={(name, partner, color) => {
+              // The aura picked on the join page becomes your saved one, so a refresh mid-game keeps it.
+              setProfile({ color });
+              roomGame.join(name, partner, { ...profile, color });
+            }}
           />
         )}
       </JoinRoomScreen>

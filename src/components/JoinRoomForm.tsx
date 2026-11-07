@@ -7,6 +7,7 @@ import { ColorWheel } from "@/components/NameTagEditor";
 import { NameTag, SketchFrame, SketchIcon } from "@/components/sketch";
 import { PARTNER_CHOICE_COUNT, drawPartnerChoices, formatName, pokemonIconUrl, type PokemonSprite } from "@/lib/game";
 import { randomMashupName } from "@/lib/mashup";
+import { randomProfileColor } from "@/lib/profile";
 import { MAX_NAME_LENGTH, clampName, cleanName, nameLength } from "@/lib/protocol";
 
 type JoinRoomFormProps = {
@@ -14,12 +15,10 @@ type JoinRoomFormProps = {
   pokemonNames: string[];
   // The name last used on this device, to start the name box with ("" if none yet).
   savedName: string;
-  color: string | null;
-  onColorChange: (hex: string) => void;
   // A short line about who's in the room, shown beside the name tag preview.
   roomNote: string;
   connected: boolean;
-  onJoin: (name: string, partner: PokemonSprite) => void;
+  onJoin: (name: string, partner: PokemonSprite, color: string) => void;
 };
 
 /**
@@ -28,16 +27,7 @@ type JoinRoomFormProps = {
  * will be on the game screen, so it carries straight over.
  * The choices stay put if joining fails (say the room is full), so the player can just try again.
  */
-export function JoinRoomForm({
-  roomCode,
-  pokemonNames,
-  savedName,
-  color,
-  onColorChange,
-  roomNote,
-  connected,
-  onJoin,
-}: JoinRoomFormProps) {
+export function JoinRoomForm({ roomCode, pokemonNames, savedName, roomNote, connected, onJoin }: JoinRoomFormProps) {
   const inputId = useId();
   const counterId = useId();
   const auraLabelId = useId();
@@ -45,6 +35,9 @@ export function JoinRoomForm({
   // Null until the player types, so the saved name (which loads after mount) fills the box.
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const name = nameDraft ?? clampName(savedName);
+  // A fresh random aura every time the form opens, like the partners. It's only saved once you join with it.
+  // (Picking it while rendering is safe: the server render never shows this form, only "Connecting…".)
+  const [color, setColor] = useState(() => randomProfileColor());
   const [choices, setChoices] = useState<PokemonSprite[] | null>(null);
   const [drawFailed, setDrawFailed] = useState(false);
   const [drawAttempt, setDrawAttempt] = useState(0);
@@ -86,7 +79,7 @@ export function JoinRoomForm({
 
   const handleSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    if (canJoin && finalName && partner) onJoin(finalName, partner);
+    if (canJoin && finalName && partner) onJoin(finalName, partner, color);
   };
 
   return (
@@ -152,7 +145,7 @@ export function JoinRoomForm({
             Random name
           </button>
         </div>
-        <ColorWheel color={color} onChange={onColorChange} size={96} labelledBy={auraLabelId} />
+        <ColorWheel color={color} onChange={setColor} size={96} labelledBy={auraLabelId} />
       </div>
 
       <div className="flex flex-col gap-2">

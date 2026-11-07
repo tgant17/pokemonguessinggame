@@ -719,6 +719,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           const isWrongPick = revealed && isSelected && !isAnswer;
           const isFaded = revealed && !isAnswer && !isSelected;
           const inverted = isCorrect || (!revealed && isSelected);
+          // In the multi-pick modes a second tap removes a pick, so a small x hints at that while picks can still change.
+          const canDeselect = isMulti && isSelected && canAnswer;
           return (
             <button
               key={`${option.id}-${option.name}`}
@@ -743,6 +745,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   {isWrongPick && <SketchStrike className="text-ink" />}
                 </span>
               </span>
+              {canDeselect && <SketchIcon name="cross" className="h-4 w-4 opacity-75" strokeWidth={2.4} draw />}
               {isCorrect && <SketchIcon name="check" className="h-5 w-5" strokeWidth={2.8} draw />}
               {isWrongPick && <SketchIcon name="cross" className="h-5 w-5" strokeWidth={2.8} draw />}
             </button>

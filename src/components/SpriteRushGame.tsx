@@ -29,7 +29,7 @@ import { useLocalGame, type GameController, type RoundResultEvent } from "@/hook
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
 import { clampName, cleanName, makeRoomCode, normalizeRoomCode, isRoomCode, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
-import { ColorPickerButton } from "@/components/ColorPicker";
+import { NameTagEditor } from "@/components/NameTagEditor";
 import { useProfile } from "@/hooks/useProfile";
 import type { Profile } from "@/lib/profile";
 
@@ -178,9 +178,14 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const room = inRoom ? roomGame.room : null;
   const game: GameController = inRoom ? roomGame : localGame;
   const { view } = game;
+  // Your name as saved on this device. It's shown right away, before a room echoes a change back.
+  const myName = cleanName(roomGame.savedName);
   const currentTag = useMemo<Tag>(
-    () => (inRoom ? profileTag(room?.me?.name ?? "You", profile, room?.me?.partner) : profileTag("You", profile)),
-    [inRoom, room?.me?.name, room?.me?.partner, profile],
+    () =>
+      inRoom
+        ? profileTag(myName ?? room?.me?.name ?? "You", profile, room?.me?.partner)
+        : profileTag(myName ?? "You", profile),
+    [inRoom, myName, room?.me?.name, room?.me?.partner, profile],
   );
 
   // Keep the room's copy of your color in step with what you pick here.
@@ -193,6 +198,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     const timer = setTimeout(() => updateProfile(profile), 150);
     return () => clearTimeout(timer);
   }, [roomProfile, profile, updateProfile]);
+
+  // Same for your name, which can be changed after joining.
+  const { rename } = roomGame;
+  const roomName = room?.me?.name;
+  useEffect(() => {
+    if (!roomName || !myName || roomName === myName) return;
+    // Typing changes the name on every key; send only once it settles.
+    const timer = setTimeout(() => rename(myName), 300);
+    return () => clearTimeout(timer);
+  }, [roomName, myName, rename]);
   useEffect(() => {
     tagRef.current = currentTag;
   }, [currentTag]);
@@ -989,8 +1004,11 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   )}
                 </span>
                 <span className={`flex min-w-0 flex-1 items-center gap-1.5 text-base ${player.connected ? "" : "opacity-50"}`}>
-                  {/* Your own tag shows your color right away, before the room echoes it back. */}
-                  <NameTag label={player.name} color={(isYou ? profile : player.profile).color} />
+                  {/* Your own tag shows your name and color right away, before the room echoes them back. */}
+                  <NameTag
+                    label={isYou ? (myName ?? player.name) : player.name}
+                    color={(isYou ? profile : player.profile).color}
+                  />
                   <span className="shrink-0 whitespace-nowrap text-xs text-ink-soft">
                     {isYou && "you"}
                     {player.id === room?.hostId && `${isYou ? " · " : ""}host`}
@@ -1116,16 +1134,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           {/* Bottom screen: where you answer. */}
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <div className="flex min-w-0 max-w-[65%] items-center gap-2">
-                <NameTag
-                  label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
-                  color={currentTag.color}
-                  icon={currentTag.icon}
-                  size="md"
-                  className="max-w-[calc(100%_-_2rem)]"
-                />
-                <ColorPickerButton color={profile.color} onChange={(color) => setProfile({ color })} />
-              </div>
+              <NameTagEditor
+                label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
+                icon={currentTag.icon}
+                // While joining, this edits the same name as the join form below it.
+                name={joining ? joinName : roomGame.savedName}
+                onNameChange={joining ? setNameDraft : roomGame.saveName}
+                color={profile.color}
+                onColorChange={(color) => setProfile({ color })}
+                className="max-w-[65%]"
+              />
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>
             </div>
             {gameState === "loading" ? (

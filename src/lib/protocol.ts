@@ -64,6 +64,7 @@ export type ServerMessage = RoomSnapshot | { type: "error"; message: string };
 export type ClientMessage =
   | { type: "join"; name: string; partner: PokemonSprite | null; profile: Profile }
   | { type: "profile"; profile: Profile }
+  | { type: "rename"; name: string }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
   | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] }
@@ -150,6 +151,10 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
     }
     case "profile":
       return { type: "profile", profile: cleanProfile(data.profile) };
+    case "rename": {
+      const name = cleanName(data.name);
+      return name ? { type: "rename", name } : null;
+    }
     case "start": {
       const settings = parseSettings(data.settings);
       if (!settings || !Array.isArray(data.rounds) || data.rounds.length !== settings.totalRounds) return null;

@@ -410,10 +410,12 @@ type NameTagProps = {
   icon?: string | null;
   className?: string;
   size?: "sm" | "md";
+  // Drawn after the name, like the color-wheel dot on your own editable tag.
+  children?: ReactNode;
 };
 
 /** A colored name tag: a team's color, or a player's own color and partner Pokémon. */
-export function NameTag({ label, color, icon, className = "", size = "sm" }: NameTagProps) {
+export function NameTag({ label, color, icon, className = "", size = "sm", children }: NameTagProps) {
   const iconSize = size === "md" ? 30 : 26;
   return (
     <span
@@ -434,6 +436,7 @@ export function NameTag({ label, color, icon, className = "", size = "sm" }: Nam
         />
       )}
       <span className="truncate py-0.5">{label}</span>
+      {children}
     </span>
   );
 }

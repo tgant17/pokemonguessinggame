@@ -85,6 +85,12 @@ export class RoomState {
         this.players.set(id, { ...player, profile: message.profile });
         break;
       }
+      case "rename": {
+        const player = this.players.get(id);
+        if (!player) return "Join the room first.";
+        this.players.set(id, { ...player, name: message.name });
+        break;
+      }
       case "start": {
         if (!this.players.has(id)) return "Join the room first.";
         if (this.currentHost() !== id) return "Only the host can start a game.";

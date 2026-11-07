@@ -306,6 +306,22 @@ test("players can set a name color, and everyone sees it", () => {
   );
 });
 
+test("players can change their name after joining, and everyone sees it", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.handle("ash", { type: "rename", name: "Red" }, T0), null);
+  const seenByMisty = room.snapshotFor("misty", T0).players.find((p) => p.id === "ash");
+  assert.equal(seenByMisty?.name, "Red");
+
+  room.connect("gary");
+  assert.equal(room.handle("gary", { type: "rename", name: "Blue" }, T0), "Join the room first.");
+
+  // The new name is cleaned the same way as a name typed when joining.
+  const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
+  assert.deepEqual(parse({ type: "rename", name: "  Brock \n of Pewter " }), { type: "rename", name: "Brock of P" });
+  assert.equal(parse({ type: "rename", name: "   " }), null);
+  assert.equal(parse({ type: "rename", name: 42 }), null);
+});
+
 test("names are at most 10 characters, counted the way people count them", () => {
   assert.equal(MAX_NAME_LENGTH, 10);
   assert.equal(clampName("Ash Ketchum of Pallet"), "Ash Ketchu");

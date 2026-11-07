@@ -11,7 +11,12 @@ import type { GameController, GameView, RoundResultEvent } from "./useLocalGame"
 // Where the room server (party/room.ts) runs. Set NEXT_PUBLIC_PARTY_HOST to the deployed Worker's host
 // (e.g. pokemonguessinggame-rooms.<you>.workers.dev). In development it defaults to `wrangler dev` on
 // port 8787 of whatever host served the page, so phones on the same Wi-Fi can join too.
-const CONFIGURED_HOST = process.env.NEXT_PUBLIC_PARTY_HOST;
+// Builds with PREVIEW_ENVIRONMENT=true (Vercel previews, local production builds) fall back to the
+// production room server, so the multiplayer screens can be tried without setting up a server first.
+// That server runs whatever was last deployed with `npm run deploy:party`, not the preview's own branch.
+const PRODUCTION_PARTY_HOST = "pokemonguessinggame-rooms.pokemonguessinggame.workers.dev";
+const isPreviewEnvironment = process.env.PREVIEW_ENVIRONMENT === "true";
+const CONFIGURED_HOST = process.env.NEXT_PUBLIC_PARTY_HOST || (isPreviewEnvironment ? PRODUCTION_PARTY_HOST : undefined);
 export const multiplayerAvailable = !!CONFIGURED_HOST || process.env.NODE_ENV === "development";
 const partyHost = () => CONFIGURED_HOST ?? (typeof window === "undefined" ? "" : `${window.location.hostname}:8787`);
 

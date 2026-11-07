@@ -6,10 +6,12 @@ import {
   buildRounds,
   drawPartnerChoices,
   formatName,
+  isFullyCorrect,
   joinNames,
   scorePicks,
   speedPoints,
   timeoutResult,
+  winnerTakesAllPot,
   type PokemonSprite,
 } from "./game.ts";
 
@@ -63,6 +65,20 @@ test("name helpers", () => {
   assert.equal(formatName("mr-mime"), "Mr Mime");
   assert.equal(joinNames(["A", "B"]), "A and B");
   assert.equal(joinNames(["A", "B", "C"]), "A, B and C");
+});
+
+test("winner takes all pot is the speed points every team could have earned", () => {
+  assert.equal(winnerTakesAllPot(8, 8, 4), 16);
+  assert.equal(winnerTakesAllPot(2, 8, 4), 4);
+  assert.equal(winnerTakesAllPot(6, 8, 3), 9);
+});
+
+test("winner takes all only counts a guess that names every Pokémon", () => {
+  const answers = [mon(1), mon(2)];
+  assert.equal(isFullyCorrect(answers, [2, 1]), true);
+  assert.equal(isFullyCorrect(answers, [1, 9]), false);
+  assert.equal(isFullyCorrect([mon(1)], [1]), true);
+  assert.equal(isFullyCorrect([mon(1)], [3]), false);
 });
 
 test("drawPartnerChoices offers three different Pokémon", async () => {

@@ -1,5 +1,5 @@
-import SpriteRushGame from "@/components/SpriteRushGame";
+import Landing from "@/components/Landing";
 
 export default function Home() {
-  return <SpriteRushGame />;
+  return <Landing />;
 }

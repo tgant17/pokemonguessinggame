@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
@@ -27,7 +28,7 @@ import {
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
-import { clampName, cleanName, makeRoomCode, normalizeRoomCode, isRoomCode, type PlayerInfo } from "@/lib/protocol";
+import { clampName, cleanName, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 
 
@@ -927,7 +928,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const joinName = nameDraft ?? clampName(roomGame.savedName);
   const joining = !!room && !room.joined;
-  const [codeDraft, setCodeDraft] = useState("");
   const [copied, setCopied] = useState(false);
   // Built after mount: the server doesn't know the site's address, and both renders must match.
   const [roomUrl, setRoomUrl] = useState("");
@@ -961,9 +961,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       // Clipboard can be blocked; the link is on screen to copy by hand.
     }
   };
-
-  const textInputClass =
-    "relative w-full min-w-0 rounded-[12px] bg-transparent px-3.5 py-3 text-lg text-ink placeholder:text-ink-faint focus:outline-none";
 
   const renderJoinForm = () => (
     <JoinRoomForm
@@ -1085,49 +1082,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     </SketchPanel>
   );
 
-  const createRoom = () => router.push(`/room/${makeRoomCode()}`);
-  const joinCode = normalizeRoomCode(codeDraft);
-
-  const renderPlayOnlinePanel = () => (
-    <SketchPanel className="p-4 sm:p-5">
-      <SectionLabel>Play with friends</SectionLabel>
-      <p className="font-hand text-xl font-bold leading-tight">Everyone plays on their own phone at the same time</p>
-      <div className="mt-4 grid gap-3 sm:grid-cols-2">
-        <button type="button" onClick={createRoom} className={`${choiceButtonClass(true)} px-3 py-3 text-lg`}>
-          <SketchFrame radius={14} wobble={1} strokeWidth={2.6} fill="ink" />
-          Create a room
-        </button>
-        <form
-          className="flex gap-2"
-          onSubmit={(event) => {
-            event.preventDefault();
-            if (isRoomCode(joinCode)) router.push(`/room/${joinCode}`);
-          }}
-        >
-          <span className="relative isolate block min-w-0 flex-1">
-            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="paper" />
-            <input
-              value={codeDraft}
-              onChange={(event) => setCodeDraft(event.target.value)}
-              placeholder="Room code"
-              aria-label="Room code"
-              autoCapitalize="characters"
-              className={`${textInputClass} py-2.5 uppercase tracking-[0.2em]`}
-            />
-          </span>
-          <button
-            type="submit"
-            disabled={!isRoomCode(joinCode)}
-            className={`${choiceButtonClass(false)} shrink-0 px-3 text-base disabled:text-ink-faint`}
-          >
-            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="paper" />
-            Join
-          </button>
-        </form>
-      </div>
-    </SketchPanel>
-  );
-
   const bottomPrompt = () => {
     if (gameState === "loading") return "Loading…";
     if (joining) return "Make your name tag";
@@ -1152,7 +1106,17 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   return (
     <main className="min-h-screen px-4 pb-12 pt-8 text-ink sm:pt-10">
       <div className="mx-auto flex w-full max-w-[600px] flex-col gap-6">
-        <header className="flex flex-col items-center text-center">
+        <header className="relative flex flex-col items-center text-center">
+          {!inRoom && (
+            <Link
+              href="/"
+              aria-label="Back to start"
+              className="relative isolate -mb-2 self-start rounded-[10px] px-3 py-1.5 text-sm text-ink transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink active:translate-y-px"
+            >
+              <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
+              ← Back
+            </Link>
+          )}
           <h1 className="font-hand text-5xl font-bold leading-none sm:text-6xl">Who&apos;s that Pokémon?</h1>
           <SketchUnderline className="mt-1 h-3 w-56 text-ink sm:w-72" />
         </header>
@@ -1191,7 +1155,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           </SketchPanel>
         </div>
 
-        {inRoom ? renderPlayersPanel() : multiplayerAvailable && renderPlayOnlinePanel()}
+        {inRoom && renderPlayersPanel()}
 
         <p className="text-center text-xs text-ink-soft">Sprite data fetched live from the PokéAPI sprites collection.</p>
       </div>

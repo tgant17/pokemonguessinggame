@@ -341,7 +341,7 @@ test("joins and name changes go in everyone's chat log, in order", () => {
   join(room, "brock", "Brock", T0 + 2000);
   assert.deepEqual(chatLog(room), ["lobby: Ash joined", "lobby: Misty joined", "lobby: Misty→Kasumi", "lobby: Brock joined"]);
   const brock = room.snapshotFor("misty", T0).events?.at(-1);
-  assert.equal(brock?.kind === "join" && brock.playerId, "brock");
+  assert.deepEqual(brock?.kind === "join" && [brock.playerId, brock.partner?.id], ["brock", 74], "joins carry the partner");
 
   // Joining again isn't news, and neither is "renaming" to the same name.
   join(room, "brock", "Brock", T0 + 3000);

@@ -95,7 +95,7 @@ export class RoomState {
         if (!this.hostId) this.hostId = id;
         // Joining again (say, a double-tapped button) isn't news, unless it changed the name.
         if (existing) this.logRename(id, existing.name, message.name, now);
-        else this.log({ kind: "join", playerId: id, name: message.name }, now);
+        else this.log({ kind: "join", playerId: id, name: message.name, partner: message.partner }, now);
         break;
       }
       case "profile": {

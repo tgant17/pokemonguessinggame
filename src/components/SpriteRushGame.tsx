@@ -601,21 +601,36 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  // Joins and renames in a room, as one-line notices in the chat log.
-  const renderRoomEvent = (event: RoomEvent) => (
-    <Notice key={`event-${event.id}`}>
-      {event.kind === "rename" ? (
-        <>
+  // Joins and renames in a room, in the chat log. A join is a chat message with the player's name tag and partner.
+  const renderRoomEvent = (event: RoomEvent) => {
+    if (event.kind === "rename") {
+      return (
+        <Notice key={`event-${event.id}`}>
           <span className="text-ink">{event.from}</span> is now <span className="text-ink">{event.to}</span>
-        </>
-      ) : (
-        <>
+        </Notice>
+      );
+    }
+    // Your own tag shows the color you've picked right away, before the room echoes it back.
+    const color =
+      event.playerId === room?.you
+        ? profile.color
+        : room?.players.find((player) => player.id === event.playerId)?.profile.color;
+    return (
+      <div key={`event-${event.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
+        <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
+        <NameTag label={event.name} color={color} />
+        {event.partner && (
+          <span className="relative h-9 w-9 shrink-0">
+            <Image src={event.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
+          </span>
+        )}
+        <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
           {/* Someone joining mid-game watches until the next one. */}
-          <span className="text-ink">{event.name}</span> {event.round === null ? "joined the room" : "joined to watch"}
-        </>
-      )}
-    </Notice>
-  );
+          {event.round === null ? "joined the room" : "joined to watch"}
+        </p>
+      </div>
+    );
+  };
 
   const renderFeed = () => {
     const pastRounds = history.filter((record) => !(gameState === "playing" && record.round === currentRoundIndex));

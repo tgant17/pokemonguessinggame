@@ -52,7 +52,7 @@ export type RoomGame = {
 
 // Something that happened in the room, shown to everyone as a line in the chat log.
 export type RoomEventDetail =
-  | { kind: "join"; playerId: string; name: string }
+  | { kind: "join"; playerId: string; name: string; partner: PokemonSprite | null }
   | { kind: "rename"; playerId: string; from: string; to: string };
 
 export type RoomEvent = RoomEventDetail & {

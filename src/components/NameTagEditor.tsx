@@ -10,7 +10,18 @@ const HUE_STOPS = Array.from({ length: 13 }, (_, i) => `hsl(${i * 30} 100% ${WHE
 const WHEEL_BACKGROUND = `radial-gradient(circle closest-side, hsl(0 0% ${WHEEL_LIGHTNESS}%), transparent), conic-gradient(${HUE_STOPS})`;
 
 /** A round color picker: click or drag anywhere on it; arrow keys nudge hue (left/right) and strength (up/down). */
-export function ColorWheel({ color, onChange, size = 132 }: { color: string | null; onChange: (hex: string) => void; size?: number }) {
+export function ColorWheel({
+  color,
+  onChange,
+  size = 132,
+  labelledBy,
+}: {
+  color: string | null;
+  onChange: (hex: string) => void;
+  size?: number;
+  // The id of a visible caption to name the wheel by; without one it's called "Your color".
+  labelledBy?: string;
+}) {
   const wheelRef = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const { hue, saturation } = color ? hexToHsl(color) : { hue: 0, saturation: 0 };
@@ -47,7 +58,8 @@ export function ColorWheel({ color, onChange, size = 132 }: { color: string | nu
       ref={wheelRef}
       role="slider"
       tabIndex={0}
-      aria-label="Your color"
+      aria-label={labelledBy ? undefined : "Your color"}
+      aria-labelledby={labelledBy}
       aria-valuemin={0}
       aria-valuemax={359}
       aria-valuenow={Math.round(hue)}
@@ -93,7 +105,7 @@ type NameTagEditorProps = {
  * and color; tapping anywhere else, pressing Escape, or pressing Enter in the name box closes it.
  */
 export function NameTagEditor({ label, icon, name, onNameChange, color, onColorChange, className = "" }: NameTagEditorProps) {
-  const headingId = useId();
+  const auraLabelId = useId();
   const counterId = useId();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
@@ -173,11 +185,8 @@ export function NameTagEditor({ label, icon, name, onNameChange, color, onColorC
 
       {open && (
         // Anchored to the tag's left edge: the tag sits at the left of the screen, so this stays on-screen on phones.
-        <div role="dialog" aria-labelledby={headingId} className="absolute left-0 top-full z-20 mt-2 w-56">
+        <div role="dialog" aria-label="Your name tag" className="absolute left-0 top-full z-20 mt-2 w-56">
           <SketchPanel radius={16} className="flex flex-col gap-3 p-3.5">
-            <p id={headingId} className="font-hand text-xl font-bold leading-none">
-              Your name color
-            </p>
             <form
               onSubmit={(event) => {
                 event.preventDefault();
@@ -204,8 +213,11 @@ export function NameTagEditor({ label, icon, name, onNameChange, color, onColorC
                 <span className="sr-only"> characters</span>
               </span>
             </form>
-            <div className="flex justify-center">
-              <ColorWheel color={color} onChange={onColorChange} size={120} />
+            <div className="flex flex-col items-center gap-2">
+              <ColorWheel color={color} onChange={onColorChange} size={120} labelledBy={auraLabelId} />
+              <p id={auraLabelId} className="font-hand text-xl font-bold leading-none">
+                Your aura
+              </p>
             </div>
           </SketchPanel>
         </div>

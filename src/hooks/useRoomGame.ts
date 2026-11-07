@@ -61,6 +61,8 @@ export type RoomInfo = {
   gameId: number | null;
   // Joins and renames for the chat log since the current game started, oldest first.
   events: RoomEvent[];
+  // The options the host has picked for the next game, or null if the host's page hasn't sent any yet.
+  settings: GameSettings | null;
 };
 
 export type RoomController = GameController & {
@@ -76,6 +78,8 @@ export type RoomController = GameController & {
   join: (name: string, partner: PokemonSprite, profile: Profile) => void;
   rename: (name: string) => void;
   updateProfile: (profile: Profile) => void;
+  // Host only: shows everyone the options picked for the next game.
+  shareSettings: (settings: GameSettings) => void;
   startGame: (settings: GameSettings, rounds: RoundData[]) => void;
   makeHost: (playerId: string) => void;
 };
@@ -223,6 +227,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       inGame: !!snapshot.game?.inGame,
       gameId: snapshot.game?.gameId ?? null,
       events: snapshot.events ?? [],
+      settings: snapshot.settings ?? null,
     };
   }, [snapshot, me]);
 
@@ -253,6 +258,8 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
 
   const updateProfile = useCallback((profile: Profile) => send({ type: "profile", profile }), [send]);
 
+  const shareSettings = useCallback((settings: GameSettings) => send({ type: "settings", settings }), [send]);
+
   const startGame = useCallback(
     (settings: GameSettings, rounds: RoundData[]) => {
       setError(null);
@@ -276,6 +283,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     join,
     rename,
     updateProfile,
+    shareSettings,
     startGame,
     makeHost,
   };

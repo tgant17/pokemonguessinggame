@@ -1,7 +1,7 @@
 // One multiplayer room: who's in it, who's hosting, and the game being played. The Worker in
 // party/room.ts wires this to WebSockets; everything here is plain logic so it can be unit-tested.
 
-import { closeRound, createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
+import { closeRound, createGame, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
 import { INTRO_COUNTDOWN_MS, type PokemonSprite } from "./game.ts";
 import {
   MAX_PLAYERS,
@@ -38,6 +38,8 @@ export class RoomState {
   private hostId: string | null = null;
   private game: GameState | null = null;
   private gameId = 0;
+  // The options the host has picked for the next game. Only the host can change them; everyone else sees them.
+  private settings: GameSettings | null = null;
   private ready = new Set<string>();
   private waitingSince: number | null = null;
   // When each disconnected player's last connection closed.
@@ -112,6 +114,12 @@ export class RoomState {
         this.logRename(id, player.name, message.name, now);
         break;
       }
+      case "settings": {
+        if (!this.players.has(id)) return "Join the room first.";
+        if (this.currentHost() !== id) return "Only the host can change the game options.";
+        this.settings = message.settings;
+        break;
+      }
       case "start": {
         if (!this.players.has(id)) return "Join the room first.";
         if (this.currentHost() !== id) return "Only the host can start a game.";
@@ -123,6 +131,7 @@ export class RoomState {
         }
         const playerIds = [...this.players.keys()].filter((playerId) => this.isConnected(playerId));
         this.game = createGame(message.settings, message.rounds, playerIds);
+        this.settings = message.settings;
         this.gameId += 1;
         this.events = [];
         this.enterWaiting(now);
@@ -217,6 +226,7 @@ export class RoomState {
               myAnswer: revealed ? (game.answers[you] ?? null) : null,
             }
           : null,
+      settings: this.settings,
       events: [...this.events],
     };
   }

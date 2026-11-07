@@ -4,6 +4,7 @@ import usePartySocket from "partysocket/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameSettings } from "@/lib/engine";
 import type { PokemonSprite, RoundData } from "@/lib/game";
+import { PreviewRoom } from "@/lib/previewRoom";
 import type { Profile } from "@/lib/profile";
 import type { ClientMessage, PlayerInfo, RoomSnapshot, ServerMessage } from "@/lib/protocol";
 import type { GameController, GameView, RoundResultEvent } from "./useLocalGame";
@@ -11,13 +12,11 @@ import type { GameController, GameView, RoundResultEvent } from "./useLocalGame"
 // Where the room server (party/room.ts) runs. Set NEXT_PUBLIC_PARTY_HOST to the deployed Worker's host
 // (e.g. pokemonguessinggame-rooms.<you>.workers.dev). In development it defaults to `wrangler dev` on
 // port 8787 of whatever host served the page, so phones on the same Wi-Fi can join too.
-// Builds with PREVIEW_ENVIRONMENT=true (Vercel previews, local production builds) fall back to the
-// production room server, so the multiplayer screens can be tried without setting up a server first.
-// That server runs whatever was last deployed with `npm run deploy:party`, not the preview's own branch.
-const PRODUCTION_PARTY_HOST = "pokemonguessinggame-rooms.pokemonguessinggame.workers.dev";
+const CONFIGURED_HOST = process.env.NEXT_PUBLIC_PARTY_HOST;
+// Builds with PREVIEW_ENVIRONMENT=true (Vercel previews) never connect to a room server. Rooms run inside
+// the page instead (src/lib/previewRoom.ts), so the multiplayer screens can be stepped through on their own.
 const isPreviewEnvironment = process.env.PREVIEW_ENVIRONMENT === "true";
-const CONFIGURED_HOST = process.env.NEXT_PUBLIC_PARTY_HOST || (isPreviewEnvironment ? PRODUCTION_PARTY_HOST : undefined);
-export const multiplayerAvailable = !!CONFIGURED_HOST || process.env.NODE_ENV === "development";
+export const multiplayerAvailable = isPreviewEnvironment || !!CONFIGURED_HOST || process.env.NODE_ENV === "development";
 const partyHost = () => CONFIGURED_HOST ?? (typeof window === "undefined" ? "" : `${window.location.hostname}:8787`);
 
 const PLAYER_ID_KEY = "pgg-player-id";
@@ -99,27 +98,50 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const receive = useCallback((data: string) => {
+    let message: ServerMessage;
+    try {
+      message = JSON.parse(data) as ServerMessage;
+    } catch {
+      return;
+    }
+    if (message.type === "error") setError(message.message);
+    else setReceived({ snapshot: message, receivedAt: Date.now() });
+  }, []);
+
   const socket = usePartySocket({
     host: partyHost(),
     party: "room",
     room: code ?? "none",
     id: playerId ?? undefined,
-    enabled: !!code && !!playerId,
+    enabled: !isPreviewEnvironment && !!code && !!playerId,
     onOpen: () => setConnected(true),
     onClose: () => setConnected(false),
-    onMessage: (event: MessageEvent) => {
-      let message: ServerMessage;
-      try {
-        message = JSON.parse(event.data as string) as ServerMessage;
-      } catch {
-        return;
-      }
-      if (message.type === "error") setError(message.message);
-      else setReceived({ snapshot: message, receivedAt: Date.now() });
-    },
+    onMessage: (event: MessageEvent) => receive(event.data as string),
   });
 
-  const send = useCallback((message: ClientMessage) => socket.send(JSON.stringify(message)), [socket]);
+  // In preview builds the room lives in this page instead, and closes when you leave it.
+  const previewRoom = useRef<PreviewRoom | null>(null);
+  useEffect(() => {
+    if (!isPreviewEnvironment || !code || !playerId) return;
+    const room = new PreviewRoom(code, playerId, receive);
+    previewRoom.current = room;
+    setConnected(true);
+    return () => {
+      room.close();
+      previewRoom.current = null;
+      setConnected(false);
+    };
+  }, [code, playerId, receive]);
+
+  const send = useCallback(
+    (message: ClientMessage) => {
+      const data = JSON.stringify(message);
+      if (isPreviewEnvironment) previewRoom.current?.send(data);
+      else socket.send(data);
+    },
+    [socket],
+  );
 
   // Re-render on each whole second while the clock runs, so the countdown ticks.
   const [now, setNow] = useState(() => Date.now());

@@ -72,13 +72,11 @@ Until `NEXT_PUBLIC_PARTY_HOST` is set, production builds hide the multiplayer bu
 
 ### Multiplayer in preview deployments
 
-To try the multiplayer screens in a Vercel preview, add the environment variable `PREVIEW_ENVIRONMENT` with the value `true`, ticking only **Preview**, then redeploy the preview. Previews then show multiplayer and connect to the production room server. If `NEXT_PUBLIC_PARTY_HOST` is also set for Preview, that address is used instead.
+To step through the multiplayer screens in a Vercel preview, add the environment variable `PREVIEW_ENVIRONMENT` with the value `true`, ticking only **Preview**, then redeploy the preview.
 
-The production room server runs whatever was last deployed with `npm run deploy:party`, not the preview's branch. So this tests the site's screens and flows. A branch that changes the room server (`party/` or `src/lib/{protocol,room,engine,game}.ts`) would run its new site against the old server.
+With it on, the site never connects to a room server. Each room runs inside the page, using the same room rules as the real server, so you can create or join a room, pick a name and partner, start a game and play it through to the results. You're the only player in it: nobody else can join, and reloading the page starts the room over. `NEXT_PUBLIC_PARTY_HOST` is ignored while the flag is on.
 
-The same flag works for a local production build: `PREVIEW_ENVIRONMENT=true npm run build && npm start`.
-
-Previews sit behind Vercel's login. To test on a phone or with friends, sign in to Vercel there, or share the preview with a **Shareable Link** from its Share button. Two tabs in one browser count as the same player, so use a private window or a second browser for each extra player.
+The same flag works locally: `PREVIEW_ENVIRONMENT=true npm run dev` (no `npm run dev:party` needed).
 
 
 ## Scripts

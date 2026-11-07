@@ -1,7 +1,7 @@
 // One multiplayer room: who's in it, who's hosting, and the game being played. The Worker in
 // party/room.ts wires this to WebSockets; everything here is plain logic so it can be unit-tested.
 
-import { closeRound, createGame, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
+import { answersStayOpen, closeRound, createGame, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
 import { INTRO_COUNTDOWN_MS, type PokemonSprite } from "./game.ts";
 import {
   CHAT_BURST,
@@ -299,7 +299,8 @@ export class RoomState {
   }
 
   private everyonePresentAnswered(now: number) {
-    if (!this.game) return false;
+    // Stacked modes let players keep changing their picks, so those rounds always run to the clock.
+    if (!this.game || answersStayOpen(this.game.settings.mode)) return false;
     const present = this.game.playerIds.filter((id) => this.isPresent(id, now));
     return present.length > 0 && present.every((id) => this.game!.answers[id]);
   }

@@ -84,38 +84,50 @@ const reveal = (state: GameState, now: number, answers: Record<string, PlayerAns
   };
 };
 
-// Records a player's picks. Ignored unless the clock is running, the player hasn't answered yet,
-// and the picks are the right number of distinct options from this round.
+// Stacked modes (Hard, Legendary) have no lock-in: whatever a player has picked is their answer, and they can
+// change it until the clock runs out. Normal mode answers with a single tap, which is final.
+export const answersStayOpen = (mode: GameMode) => MODE_CONFIG[mode].answerCount > 1;
+
+// Records a player's picks. Ignored unless the clock is running and the picks are distinct options from
+// this round. Normal mode takes one answer per player. Stacked modes take the full set of picks and replace
+// any earlier set (scored at the time of the latest change); fewer picks than that withdraws the answer,
+// so a player who deselects one times out unless they pick again.
 export const submitAnswer = (state: GameState, playerId: string, pickedIds: number[], now: number): GameState => {
   // An answer that lands after the deadline is a timeout, not a slow answer.
   if (state.phase === "playing" && state.roundEndsAt !== null && now >= state.roundEndsAt) return tick(state, now);
   const round = currentRound(state);
-  if (state.phase !== "playing" || !round || !state.playerIds.includes(playerId) || state.answers[playerId]) return state;
+  if (state.phase !== "playing" || !round || !state.playerIds.includes(playerId)) return state;
+  const stayOpen = answersStayOpen(state.settings.mode);
+  if (state.answers[playerId] && !stayOpen) return state;
   const picks = [...new Set(pickedIds)];
   const { answerCount } = MODE_CONFIG[state.settings.mode];
-  if (picks.length !== answerCount || !picks.every((id) => round.options.some((option) => option.id === id))) {
-    return state;
+  if (!picks.every((id) => round.options.some((option) => option.id === id))) return state;
+  if (stayOpen && picks.length < answerCount) {
+    if (!state.answers[playerId]) return state;
+    const answers = { ...state.answers };
+    delete answers[playerId];
+    return { ...state, answers };
   }
+  if (picks.length !== answerCount) return state;
   // Points come from whole seconds left, matching the countdown players see.
   const timeLeft = secondsLeft(state, now);
   const { questionTime, winnerTakesAll } = state.settings;
   const result = scorePicks(round.answers, picks, timeLeft, questionTime);
+  // Answers that can still change only end the round when the clock does.
+  const finish = (answers: Record<string, PlayerAnswer>) =>
+    !stayOpen && state.playerIds.every((id) => answers[id]) ? reveal(state, now, answers) : { ...state, answers };
   if (winnerTakesAll) {
     // Answers are applied in the order they arrive, so the first fully right one wins. Anything else,
-    // including partly right, scores nothing; a player who answered wrong is out for the round.
+    // including partly right, scores nothing; in normal mode a player who answered wrong is out for the round.
     if (isFullyCorrect(round.answers, picks)) {
       const pot = winnerTakesAllPot(timeLeft, questionTime, state.playerIds.length);
       const answers = { ...state.answers, [playerId]: { pickedIds: picks, outcome: result.outcome, delta: pot, won: true as const } };
       // Nobody else can score now, so the round ends straight away.
       return closeRound({ ...state, answers }, now);
     }
-    const answers = { ...state.answers, [playerId]: { pickedIds: picks, outcome: result.outcome, delta: 0 } };
-    if (state.playerIds.every((id) => answers[id])) return reveal(state, now, answers);
-    return { ...state, answers };
+    return finish({ ...state.answers, [playerId]: { pickedIds: picks, outcome: result.outcome, delta: 0 } });
   }
-  const answers = { ...state.answers, [playerId]: { pickedIds: picks, ...result } };
-  if (state.playerIds.every((id) => answers[id])) return reveal(state, now, answers);
-  return { ...state, answers };
+  return finish({ ...state.answers, [playerId]: { pickedIds: picks, ...result } });
 };
 
 // Ends the round now: anyone who hasn't answered times out, and the answers are revealed.

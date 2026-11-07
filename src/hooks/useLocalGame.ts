@@ -28,9 +28,9 @@ export type GameView = {
   timeLeft: number;
   myAnswer: PlayerAnswer | undefined;
   myScore: number;
-  // True when this player can't answer right now: already locked in (waiting for others) or only watching.
+  // True when this player can't answer right now: already answered in normal mode (waiting for others) or only watching.
   locked: boolean;
-  // The picks this player locked in for the current round, if any.
+  // The picks the game has recorded for this player in the current round, if any.
   myPicks: number[] | null;
 };
 
@@ -110,7 +110,8 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
       round,
       phase: game.phase,
       timeLeft: secondsLeft(game, now),
-      myAnswer: game.answers[ME],
+      // Stacked modes record picks while the clock runs; the result only shows once the round is over.
+      myAnswer: game.phase === "playing" ? undefined : game.answers[ME],
       myScore: game.scores[ME] ?? 0,
       locked: false,
       myPicks: game.answers[ME]?.pickedIds ?? null,

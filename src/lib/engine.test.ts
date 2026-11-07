@@ -102,6 +102,33 @@ test("stacked modes score partial credit", () => {
   assert.deepEqual(answered.answers.me, { pickedIds: [1, 2, 8], outcome: "partial", delta: 3 });
 });
 
+test("stacked modes keep picks open until the clock runs out", () => {
+  const hard: GameSettings = { mode: "hard", totalRounds: 1, questionTime: 10 };
+  let game = startClock(createGame(hard, makeRounds(1, 6, 2), ["me"]), T0);
+  game = submitAnswer(game, "me", [3], T0);
+  assert.equal(game.answers.me, undefined, "one pick of two isn't an answer yet");
+  game = submitAnswer(game, "me", [3, 4], T0 + 500);
+  assert.equal(game.phase, "playing", "a full set doesn't end the round, even solo");
+  assert.equal(game.answers.me.outcome, "wrong");
+  game = submitAnswer(game, "me", [1, 2], T0 + 6000);
+  assert.deepEqual(game.answers.me, { pickedIds: [1, 2], outcome: "correct", delta: 2 }, "scored at the latest change");
+  game = submitAnswer(game, "me", [1], T0 + 7000);
+  assert.equal(game.answers.me, undefined, "deselecting one withdraws the answer");
+  game = submitAnswer(game, "me", [1, 2], T0 + 8000);
+  game = tick(game, T0 + 10_000);
+  assert.equal(game.phase, "reveal");
+  assert.deepEqual(game.scores, { me: 1 });
+});
+
+test("stacked modes time out a player whose picks were withdrawn", () => {
+  const hard: GameSettings = { mode: "hard", totalRounds: 1, questionTime: 10 };
+  let game = startClock(createGame(hard, makeRounds(1, 6, 2), ["me"]), T0);
+  game = submitAnswer(game, "me", [1, 2], T0);
+  game = submitAnswer(game, "me", [], T0 + 100);
+  game = tick(game, T0 + 10_000);
+  assert.equal(game.answers.me.outcome, "timeout");
+});
+
 test("with several players the round reveals once everyone has answered or time runs out", () => {
   const start = startClock(createGame(normal, makeRounds(2, 4, 1), ["ash", "misty", "brock"]), T0);
   let game = submitAnswer(start, "ash", [1], T0 + 500);
@@ -142,6 +169,12 @@ test("winner takes all: no partial credit, and nobody scores if nobody gets it",
   game = submitAnswer(game, "a", [1, 3], T0);
   assert.deepEqual(game.answers.a, { pickedIds: [1, 3], outcome: "partial", delta: 0 });
   game = submitAnswer(game, "b", [4, 5], T0);
+  game = submitAnswer(game, "c", [4, 6], T0);
+  assert.equal(game.phase, "playing", "stacked picks stay open even once everyone has picked");
+  // A wrong set doesn't put anyone out: they can still change it and win.
+  const won = submitAnswer(game, "b", [1, 2], T0 + 1000);
+  assert.equal(won.phase, "reveal");
+  assert.equal(won.answers.b.won, true);
   game = tick(game, T0 + 10_000);
   assert.equal(game.phase, "reveal");
   assert.deepEqual(game.scores, { a: 0, b: 0, c: 0 });

@@ -21,6 +21,8 @@ import {
   buildRounds,
   formatName,
   joinNames,
+  optionIconUrl,
+  showsOptionIcons,
   type GameMode,
   type PokemonSprite,
   type RoundOutcome,
@@ -748,6 +750,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       );
     }
     const revealed = roundRevealed;
+    const iconsOn = showsOptionIcons(mode, timeLeft, questionTime);
     return (
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
         {currentRound.options.map((option) => {
@@ -777,6 +780,22 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 fill={inverted ? "ink" : "paper"}
                 stroke={isFaded ? "var(--ink-faint)" : "var(--ink)"}
               />
+              {isMulti && (
+                // Rendered from the start of the round but hidden, so the image is already loaded and its space
+                // reserved; at the halfway mark it fades and grows in instead of popping in and shoving the name over.
+                // Front sprites have wide transparent margins, so the negative margin keeps the button compact.
+                <Image
+                  src={optionIconUrl(option.id)}
+                  alt=""
+                  width={40}
+                  height={40}
+                  unoptimized
+                  className={`-my-1.5 -ml-2 h-10 w-10 shrink-0 transition-[opacity,transform] duration-700 ease-out motion-reduce:scale-100 ${
+                    iconsOn ? (isFaded ? "scale-100 opacity-40" : "scale-100 opacity-100") : "scale-50 opacity-0"
+                  }`}
+                  style={{ imageRendering: "pixelated" }}
+                />
+              )}
               <span className="min-w-0 flex-1 break-words">
                 <span className="relative">
                   {formatName(option.name)}

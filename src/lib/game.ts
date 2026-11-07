@@ -97,7 +97,17 @@ export const formatName = (name: string) =>
 export const joinNames = (names: string[]) =>
   names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
-export const spriteFromResponse = (data: PokemonSpriteResponse): string | null => {
+// A small pixel sprite for showing beside an option's name. Built from the id alone, so rounds sent
+// through a room don't need to carry it. (PokeAPI's menu icons stop at #809; front sprites cover every id.)
+export const optionIconUrl = (id: number) =>
+  `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
+
+// Stacked modes (Hard, Super Hard) put icons beside the options once half the round's clock has run down,
+// as a hint for players who are still stuck. A 10-second round shows them from 5 seconds left.
+export const showsOptionIcons = (mode: GameMode, timeLeft: number, questionTime: number) =>
+  MODE_CONFIG[mode].answerCount > 1 && timeLeft <= questionTime / 2;
+
+export const spriteFromResponse =(data: PokemonSpriteResponse): string | null => {
   const padded = data.id.toString().padStart(3, "0");
   const pokemonAssetsUrl =
     data.id >= 1 && data.id <= 1010 ? `https://assets.pokemon.com/assets/cms2/img/pokedex/full/${padded}.png` : null;

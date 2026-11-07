@@ -21,6 +21,7 @@ import {
   buildRounds,
   formatName,
   joinNames,
+  optionIconUrl,
   type GameMode,
   type PokemonSprite,
   type RoundOutcome,
@@ -28,6 +29,7 @@ import {
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
+import { useOptionIcons } from "@/hooks/useOptionIcons";
 import { clampName, cleanName, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 import { NameTagEditor } from "@/components/NameTagEditor";
@@ -155,6 +157,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [history, setHistory] = useState<RoundRecord[]>([]);
+  const [showOptionIcons, setShowOptionIcons] = useOptionIcons();
   const feedRef = useRef<HTMLDivElement>(null);
   const { profile, setProfile } = useProfile();
 
@@ -737,6 +740,18 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 fill={inverted ? "ink" : "paper"}
                 stroke={isFaded ? "var(--ink-faint)" : "var(--ink)"}
               />
+              {showOptionIcons && (
+                // Front sprites have wide transparent margins, so the negative margin keeps the button compact.
+                <Image
+                  src={optionIconUrl(option.id)}
+                  alt=""
+                  width={40}
+                  height={40}
+                  unoptimized
+                  className={`-my-1.5 -ml-2 h-10 w-10 shrink-0 ${isFaded ? "opacity-40" : ""}`}
+                  style={{ imageRendering: "pixelated" }}
+                />
+              )}
               <span className="min-w-0 flex-1 break-words">
                 <span className="relative">
                   {formatName(option.name)}
@@ -927,6 +942,27 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       </div>
 
       {inRoom && renderExtras()}
+
+      <div className="flex flex-col gap-2">
+        <SectionLabel id="option-icons-label">Option icons</SectionLabel>
+        <div role="group" aria-labelledby="option-icons-label" className="flex gap-2">
+          {[false, true].map((value) => {
+            const selected = showOptionIcons === value;
+            return (
+              <button
+                key={String(value)}
+                type="button"
+                onClick={() => setShowOptionIcons(value)}
+                aria-pressed={selected}
+                className={`${choiceButtonClass(selected)} min-w-[3.75rem] px-3 py-2 text-base`}
+              >
+                <SketchFrame radius={12} wobble={0.8} strokeWidth={2.4} fill={selected ? "ink" : "paper"} />
+                {value ? "On" : "Off"}
+              </button>
+            );
+          })}
+        </div>
+      </div>
 
       <button
         type="button"

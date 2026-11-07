@@ -1,33 +1,20 @@
-// A player's look: the color their name shows in and the partner Pokémon whose icon sits beside it.
+// A player's look: the color their name tag shows in. (Their partner Pokémon is picked when joining a room.)
 // Shared by the browser and the room server; keep it free of React/Next and Worker-only imports.
 
 export type Profile = {
   // A #rrggbb color, or null before one has been picked.
   color: string | null;
-  // National Pokédex number of the partner Pokémon, or null for none.
-  pokemonId: number | null;
 };
 
-// pokemon-list.json holds the national Pokédex in order, so a name's index + 1 is its number.
-export const MAX_POKEMON_ID = 1025;
-
-export const EMPTY_PROFILE: Profile = { color: null, pokemonId: null };
+export const EMPTY_PROFILE: Profile = { color: null };
 
 export const cleanColor = (value: unknown): string | null =>
   typeof value === "string" && /^#[0-9a-f]{6}$/i.test(value) ? value.toLowerCase() : null;
 
-export const cleanPokemonId = (value: unknown): number | null =>
-  Number.isInteger(value) && (value as number) >= 1 && (value as number) <= MAX_POKEMON_ID ? (value as number) : null;
-
 export const cleanProfile = (value: unknown): Profile => {
   if (typeof value !== "object" || value === null) return EMPTY_PROFILE;
-  const { color, pokemonId } = value as Record<string, unknown>;
-  return { color: cleanColor(color), pokemonId: cleanPokemonId(pokemonId) };
+  return { color: cleanColor((value as Record<string, unknown>).color) };
 };
-
-// The small in-game sprite, which reads well at icon size.
-export const pokemonIconUrl = (id: number) =>
-  `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 
 // --- Color wheel math. The wheel is hue around the circle and saturation from the center out, at a fixed
 // lightness so dark ink text stays readable on any color picked. ---

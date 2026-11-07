@@ -5,7 +5,7 @@ import { EMPTY_PROFILE, cleanProfile, randomProfileColor, type Profile } from "@
 
 const PROFILE_KEY = "pgg-profile";
 
-// The player's color and partner Pokémon, kept in localStorage so they carry over between visits and rooms.
+// The player's name color, kept in localStorage so they carry over between visits and rooms.
 // New players get a random color so everyone in a room starts out looking different.
 export function useProfile() {
   // Starts empty so the server render and the first client render match; the saved profile loads after mount.

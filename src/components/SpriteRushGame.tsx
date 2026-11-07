@@ -2,6 +2,8 @@
 
 import Image from "next/image";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { SectionLabel, choiceButtonClass } from "@/components/controls";
+import { JoinRoomForm } from "@/components/JoinRoomForm";
 import {
   NameTag,
   SketchFrame,
@@ -25,29 +27,21 @@ import {
 } from "@/lib/game";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
-import { MAX_NAME_LENGTH, makeRoomCode, normalizeRoomCode, isRoomCode } from "@/lib/protocol";
+import { clampName, cleanName, makeRoomCode, normalizeRoomCode, isRoomCode, type PlayerInfo } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 import { ProfileCard } from "@/components/ProfileCard";
 import { useProfile } from "@/hooks/useProfile";
-import { pokemonIconUrl, type Profile } from "@/lib/profile";
+import type { Profile } from "@/lib/profile";
 
 
 
-type TeamState = {
-  name: string;
-  color: string;
-  score: number;
-  rounds: number;
-};
-
-
-// Who posted a message in the chat log: a team, or a player (with their color and partner Pokémon).
+// Who posted a message in the chat log: you, a room player, or the host. Players show their color and partner.
 type Tag = { label: string; color?: string | null; icon?: string | null };
 
-const profileTag = (label: string, profile: Profile): Tag => ({
+const profileTag = (label: string, profile: Profile, partner?: PokemonSprite | null): Tag => ({
   label,
   color: profile.color,
-  icon: profile.pokemonId ? pokemonIconUrl(profile.pokemonId) : null,
+  icon: partner?.spriteUrl ?? null,
 });
 
 // One finished round, kept in the chat log on the top screen.
@@ -84,13 +78,7 @@ const NUMBER_WORDS = ["zero", "one", "two", "three"];
 
 const capitalize = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
-const TEAM_PRESETS: TeamState[] = [
-  { name: "Red", color: "#f87171", score: 0, rounds: 0 },
-  { name: "Blue", color: "#60a5fa", score: 0, rounds: 0 },
-  { name: "Yellow", color: "#facc15", score: 0, rounds: 0 },
-  { name: "Green", color: "#4ade80", score: 0, rounds: 0 },
-];
-
+const SOLO_TAG: Tag = { label: "You" };
 const HOST_TAG: Tag = { label: "Host" };
 
 
@@ -120,10 +108,6 @@ function OutcomeMark({ outcome, hits, total, draw = false, className = "h-6 w-6"
   );
 }
 
-function SectionLabel({ children }: { children: ReactNode }) {
-  return <p className="text-xs uppercase tracking-[0.25em] text-ink-soft">{children}</p>;
-}
-
 // A one-line system message in the chat log, e.g. "Normal · 10 rounds".
 function Notice({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
   return (
@@ -149,7 +133,7 @@ function Message({ tag, children, className = "" }: { tag: Tag; children: ReactN
   );
 }
 
-// Solo and pass-the-device play by default; pass a room code to play in a multiplayer room.
+// Solo play by default; pass a room code to play in a multiplayer room.
 export default function SpriteRushGame({ roomCode = null }: { roomCode?: string | null }) {
   const inRoom = roomCode !== null;
   const router = useRouter();
@@ -162,30 +146,17 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [selection, setSelection] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
   const [isPreparing, setIsPreparing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [teams, setTeams] = useState<TeamState[]>(TEAM_PRESETS);
-  const [activeTeam, setActiveTeam] = useState<string>(TEAM_PRESETS[0].name);
-  const [showTeams, setShowTeams] = useState(false);
   const [history, setHistory] = useState<RoundRecord[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
   const { profile, setProfile } = useProfile();
 
-  const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
-  const teamTag = useMemo<Tag>(
-    () => (showTeams ? { label: activeTeamData.name, color: activeTeamData.color } : profileTag("You", profile)),
-    [showTeams, activeTeamData.name, activeTeamData.color, profile],
-  );
   // The round-result handler reads the tag through a ref, since in a room the tag (your name) comes from
   // the room hook, which itself needs the handler.
-  const tagRef = useRef<Tag>(teamTag);
+  const tagRef = useRef<Tag>(SOLO_TAG);
 
-  // Each finished round goes to the chat log, and in solo play to the active team's totals.
+  // Each finished round goes to the chat log.
   const handleRoundResult = useCallback(
     ({ roundIndex, round, answer }: RoundResultEvent) => {
-      if (!inRoom) setTeams((prevTeams) =>
-        prevTeams.map((team) =>
-          team.name === activeTeam ? { ...team, score: team.score + answer.delta, rounds: team.rounds + 1 } : team,
-        ),
-      );
       setHistory((prev) => [
         ...prev,
         {
@@ -199,7 +170,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         },
       ]);
     },
-    [activeTeam, inRoom],
+    [],
   );
 
   const localGame = useLocalGame(handleRoundResult);
@@ -208,16 +179,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const game: GameController = inRoom ? roomGame : localGame;
   const { view } = game;
   const currentTag = useMemo<Tag>(
-    () => (inRoom ? profileTag(room?.me?.name ?? "You", profile) : teamTag),
-    [inRoom, room?.me?.name, profile, teamTag],
+    () => (inRoom ? profileTag(room?.me?.name ?? "You", profile, room?.me?.partner) : profileTag("You", profile)),
+    [inRoom, room?.me?.name, room?.me?.partner, profile],
   );
 
-  // Keep the room's copy of your color and partner Pokémon in step with what you pick here.
+  // Keep the room's copy of your color in step with what you pick here.
   const { updateProfile } = roomGame;
   const roomProfile = room?.me?.profile;
   useEffect(() => {
     if (!roomProfile || !profile.color) return;
-    if (roomProfile.color === profile.color && roomProfile.pokemonId === profile.pokemonId) return;
+    if (roomProfile.color === profile.color) return;
     // Dragging across the wheel changes the color many times a second; send only where it settles.
     const timer = setTimeout(() => updateProfile(profile), 150);
     return () => clearTimeout(timer);
@@ -244,7 +215,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const status: RoundStatus = view?.myAnswer?.outcome ?? "idle";
   const currentRound = view?.round;
   const currentRoundIndex = view?.roundIndex ?? 0;
-  const selectedIds = selection.round === currentRoundIndex ? selection.ids : [];
+  // Picks made on this screen, or after a refresh mid-round, the ones the room already has for you.
+  const selectedIds = selection.round === currentRoundIndex ? selection.ids : (view?.myPicks ?? []);
+  // The round's answers are showing: you've got your result, or (when watching a room) the round is over.
+  const roundRevealed = status !== "idle" || view?.phase === "reveal";
 
   // Stacked silhouettes stay hidden until every sprite in the round has loaded, so none pops in before the others.
   const [loadedSprites, setLoadedSprites] = useState<{ round: number; ids: number[] }>({ round: -1, ids: [] });
@@ -320,7 +294,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     if (!feed) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     feed.scrollTo({ top: feed.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
-  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing]);
+  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, room?.players.length]);
 
   const canAnswer = view?.phase === "playing" && status === "idle" && !view.locked && spritesReady;
 
@@ -453,7 +427,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         <span className="flex items-center gap-1 whitespace-nowrap">
           <SketchIcon name="star" className="h-4 w-4" strokeWidth={2.2} />
           <span className="tabular-nums">{score}</span>
-          <span className="hidden text-ink-soft sm:inline">· total {activeTeamData.score}</span>
         </span>
         <div className="ml-auto">{renderTimerGauge()}</div>
       </div>
@@ -463,7 +436,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   const renderSpriteStage = () => {
     if (!currentRound) return null;
-    const revealed = status !== "idle";
+    const revealed = roundRevealed;
     const stackSize = currentRound.answers.length;
     const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
     return (
@@ -540,6 +513,9 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 <span className="ml-2 whitespace-nowrap font-pixel text-base font-normal">{formatDelta(delta)}</span>
               )}
             </>
+          ) : roundRevealed ? (
+            // Watching a room: there's no result of your own to show, just the answer.
+            <>{`${currentRound.answers.length > 1 ? "Those were" : "It's"} ${joinNames(currentRound.answers.map((answer) => formatName(answer.name)))}!`}</>
           ) : (
             <>{isMulti ? `Who are these ${answerCountWord}?` : "Who's that Pokémon?"}</>
           )}
@@ -577,6 +553,21 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
+  // Each player in a room announces their partner in the chat log before the first game.
+  const renderPartnerRow = (player: PlayerInfo) =>
+    player.partner && (
+      <div key={`partner-${player.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
+        <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
+        <NameTag label={player.name} />
+        <span className="relative h-9 w-9 shrink-0">
+          <Image src={player.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
+        </span>
+        <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
+          I choose you, {formatName(player.partner.name)}!
+        </p>
+      </div>
+    );
+
   const renderFeed = () => {
     const pastRounds = history.filter((record) => !(gameState === "playing" && record.round === currentRoundIndex));
     return (
@@ -588,7 +579,13 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         )}
         {isSetup && history.length === 0 && (
           <>
-            <Notice>{room && !room.isHost ? "You're in! The host will start soon" : "Welcome! Set up a game below"}</Notice>
+            <Notice>
+              {room && !room.joined
+                ? "Make a name tag below to join"
+                : room && !room.isHost
+                  ? "You're in! The host will start soon"
+                  : "Welcome! Set up a game below"}
+            </Notice>
             <Message tag={HOST_TAG} className="flex items-start gap-3">
               <SketchIcon name="pokeball" className="mt-1 h-14 w-14 sm:h-16 sm:w-16" strokeWidth={2} draw />
               <div className="min-w-0">
@@ -597,11 +594,12 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 </p>
                 <p className="mt-1 font-hand text-lg leading-snug text-ink-soft sm:text-xl">
                   {room
-                    ? `Share the invite link below. ${room.isHost ? "You're" : `${hostName} is`} hosting and starts the game once everyone's in.`
+                    ? `Share the invite link below. ${room.isHost ? "You're" : room.hostId ? `${hostName} is` : "The first player to join is"} hosting and starts the game once everyone's in.`
                     : instructions}
                 </p>
               </div>
             </Message>
+            {room?.players.map(renderPartnerRow)}
           </>
         )}
         {history.length > 0 && (
@@ -619,7 +617,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               Final score: {score}
             </p>
             <p className="mt-1 font-hand text-lg leading-snug text-ink-soft">
-              {room && standings.length > 1 ? winnerLine() : `You finished ${totalRounds} rounds. Switch teams or play again!`}
+              {room && standings.length > 1 ? winnerLine() : `You finished ${totalRounds} rounds. Play again!`}
             </p>
           </Message>
         )}
@@ -665,7 +663,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         </div>
       );
     }
-    const revealed = status !== "idle";
+    const revealed = roundRevealed;
     return (
       <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
         {currentRound.options.map((option) => {
@@ -737,11 +735,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       </button>
     );
   };
-
-  const choiceButtonClass = (selected: boolean) =>
-    `relative isolate rounded-[14px] transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-not-allowed ${
-      selected ? "text-paper" : "text-ink"
-    }`;
 
   const renderGameSetup = () => (
     <div className="flex flex-col gap-4">
@@ -875,7 +868,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   // --- Multiplayer rooms ---
 
-  const [nameDraft, setNameDraft] = useState("");
+  // Null until the player types, so the name saved from a previous room fills the field.
+  const [nameDraft, setNameDraft] = useState<string | null>(null);
+  const joinName = nameDraft ?? clampName(roomGame.savedName);
+  const joining = !!room && !room.joined;
   const [codeDraft, setCodeDraft] = useState("");
   const [copied, setCopied] = useState(false);
   // Built after mount: the server doesn't know the site's address, and both renders must match.
@@ -914,56 +910,16 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const textInputClass =
     "relative w-full min-w-0 rounded-[12px] bg-transparent px-3.5 py-3 text-lg text-ink placeholder:text-ink-faint focus:outline-none";
 
-  const renderPrimaryButton = (label: ReactNode, onClick: () => void, disabled = false) => (
-    <button
-      type="submit"
-      onClick={onClick}
-      disabled={disabled}
-      className={`relative isolate flex w-full items-center justify-center gap-2 rounded-[16px] py-3.5 text-xl transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-not-allowed ${
-        disabled ? "text-ink-soft" : "text-paper"
-      }`}
-    >
-      <SketchFrame
-        radius={16}
-        wobble={1.1}
-        strokeWidth={2.8}
-        fill={disabled ? "paper" : "ink"}
-        stroke={disabled ? "var(--ink-faint)" : "var(--ink)"}
-        dotted={disabled}
-      />
-      {label}
-    </button>
+  const renderJoinForm = () => (
+    <JoinRoomForm
+      roomCode={roomCode ?? ""}
+      pokemonNames={pokemonNames}
+      name={joinName}
+      onNameChange={setNameDraft}
+      connected={roomGame.connected}
+      onJoin={(name, partner) => roomGame.join(name, partner, profile)}
+    />
   );
-
-  const renderJoinForm = () => {
-    const name = nameDraft || roomGame.savedName;
-    const cleaned = name.trim();
-    return (
-      <form className="flex flex-col gap-3" onSubmit={(event) => event.preventDefault()}>
-        <label className="flex flex-col gap-2">
-          <SectionLabel>Your name</SectionLabel>
-          <span className="relative isolate block">
-            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
-            <input
-              value={name}
-              onChange={(event) => setNameDraft(event.target.value)}
-              maxLength={MAX_NAME_LENGTH}
-              autoComplete="nickname"
-              placeholder="Ash"
-              className={textInputClass}
-            />
-          </span>
-        </label>
-        {renderPrimaryButton(
-          <>
-            Join room {roomCode} <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
-          </>,
-          () => cleaned && roomGame.join(cleaned, profile),
-          !cleaned || !roomGame.connected,
-        )}
-      </form>
-    );
-  };
 
   const renderWaitingForHost = () => (
     <div className="flex flex-col items-center gap-2 py-6 text-center">
@@ -996,14 +952,24 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           </p>
           <p className="mt-1 break-all text-xs text-ink-soft">{roomUrl}</p>
         </div>
-        <button
-          type="button"
-          onClick={copyRoomLink}
-          className={`${choiceButtonClass(false)} shrink-0 px-3 py-2 text-sm`}
-        >
-          <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
-          {copied ? "Copied!" : "Copy invite link"}
-        </button>
+        <div className="flex shrink-0 gap-2">
+          <button
+            type="button"
+            onClick={copyRoomLink}
+            className={`${choiceButtonClass(false)} px-3 py-2 text-sm`}
+          >
+            <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
+            {copied ? "Copied!" : "Copy invite link"}
+          </button>
+          <button
+            type="button"
+            onClick={() => router.push("/")}
+            className={`${choiceButtonClass(false)} px-3 py-2 text-sm text-ink-soft`}
+          >
+            <SketchFrame radius={10} wobble={0.8} strokeWidth={2} fill="paper" stroke="var(--ink-faint)" />
+            Leave room
+          </button>
+        </div>
       </div>
       {standings.length > 0 && (
         <ol className="mt-4 flex flex-col gap-2">
@@ -1017,15 +983,30 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               >
                 <SketchFrame radius={12} wobble={0.8} strokeWidth={isYou ? 2.6 : 2} fill="paper" traced={isYou} />
                 <span className="w-5 text-center text-sm tabular-nums text-ink-soft">{index + 1}</span>
+                <span className={`relative h-8 w-8 shrink-0 ${player.connected ? "" : "opacity-40"}`}>
+                  {player.partner && (
+                    <Image src={player.partner.spriteUrl} alt="" fill sizes="32px" className="object-contain" />
+                  )}
+                </span>
                 <span className={`flex min-w-0 flex-1 items-center gap-1.5 text-base ${player.connected ? "" : "opacity-50"}`}>
-                  {/* Your own tag shows what you've picked right away, before the room echoes it back. */}
-                  <NameTag {...profileTag(player.name, isYou ? profile : player.profile)} />
+                  {/* Your own tag shows your color right away, before the room echoes it back. */}
+                  <NameTag label={player.name} color={(isYou ? profile : player.profile).color} />
                   <span className="shrink-0 whitespace-nowrap text-xs text-ink-soft">
                     {isYou && "you"}
                     {player.id === room?.hostId && `${isYou ? " · " : ""}host`}
                     {!player.connected && " · away"}
                   </span>
                 </span>
+                {room?.isHost && isSetup && !isYou && player.connected && (
+                  <button
+                    type="button"
+                    onClick={() => roomGame.makeHost(player.id)}
+                    className={`${choiceButtonClass(false)} px-2 py-1 text-xs`}
+                  >
+                    <SketchFrame radius={8} wobble={0.6} strokeWidth={1.8} fill="paper" />
+                    Make host
+                  </button>
+                )}
                 {view?.phase === "playing" && player.answered && (
                   <span className="text-xs text-ink-soft">answered</span>
                 )}
@@ -1094,20 +1075,20 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   const renderProfileCard = () => (
     <ProfileCard
-      name={inRoom ? (room?.me?.name ?? (nameDraft.trim() || roomGame.savedName || "You")) : "You"}
+      name={inRoom ? (room?.me?.name ?? (cleanName(joinName) || "You")) : "You"}
+      icon={room?.me?.partner?.spriteUrl}
       profile={profile}
       onChange={setProfile}
-      pokemonNames={pokemonNames}
     />
   );
 
   const bottomPrompt = () => {
     if (gameState === "loading") return "Loading…";
-    if (room && !room.joined) return "Pick a name";
+    if (joining) return "Make your name tag";
     if (room && isSetup && !room.isHost) return `Room ${room.code}`;
     if (isSetup) return "Set up a game";
-    if (view?.locked && status === "idle") return room?.inGame ? "Locked in" : "Watching";
-    if (status !== "idle") return "Next round…";
+    if (roundRevealed) return "Next round…";
+    if (view?.locked) return room?.inGame ? "Locked in" : "Watching";
     if (isMulti) return `Pick ${answerCountWord} · ${selectedIds.length}/${modeConfig.answerCount}`;
     return "Tap the right name";
   };
@@ -1144,7 +1125,13 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           {/* Bottom screen: where you answer. */}
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <NameTag label={currentTag.label} color={currentTag.color} icon={currentTag.icon} size="md" className="max-w-[60%]" />
+              <NameTag
+                label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
+                color={currentTag.color}
+                icon={currentTag.icon}
+                size="md"
+                className="max-w-[60%]"
+              />
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>
             </div>
             {gameState === "loading" ? (
@@ -1156,7 +1143,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             ) : (
               <>
                 {renderAnswers()}
-                {gameState === "playing" && status === "idle" && view?.locked
+                {gameState === "playing" && !roundRevealed && view?.locked
                   ? renderLockedIn()
                   : isMulti && gameState === "playing" && status === "idle" && renderSendButton()}
               </>
@@ -1166,58 +1153,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
         {renderProfileCard()}
 
-        {inRoom ? (
-          renderPlayersPanel()
-        ) : (
-          <>
-            {multiplayerAvailable && renderPlayOnlinePanel()}
-            <SketchPanel className="p-4 sm:p-5">
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <SectionLabel>Team play</SectionLabel>
-                  <p className="font-hand text-xl font-bold leading-tight">Pass the device between teams and track points</p>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setShowTeams((prev) => !prev)}
-                  aria-expanded={showTeams}
-                  className={`${choiceButtonClass(false)} shrink-0 px-3 py-2 text-sm`}
-                >
-                  <SketchFrame radius={10} wobble={0.8} strokeWidth={2.2} fill="paper" />
-                  {showTeams ? "Hide teams" : "Show teams"}
-                </button>
-              </div>
-
-              {showTeams && (
-                <div className="mt-4">
-                  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    {teams.map((team) => {
-                      const active = activeTeam === team.name;
-                      return (
-                        <button
-                          key={team.name}
-                          type="button"
-                          onClick={() => setActiveTeam(team.name)}
-                          aria-pressed={active}
-                          className={`${choiceButtonClass(false)} flex flex-col items-start gap-1.5 px-3 pb-2.5 pt-3 text-left`}
-                        >
-                          <SketchFrame radius={14} wobble={1} strokeWidth={active ? 2.8 : 2.2} fill="paper" traced={active} />
-                          <NameTag label={team.name} color={team.color} />
-                          <span className="text-sm leading-tight">Score {team.score}</span>
-                          <span className="text-xs leading-tight text-ink-soft">Rounds {team.rounds}</span>
-                          {active && <span className="font-hand text-base font-bold leading-none">playing now!</span>}
-                        </button>
-                      );
-                    })}
-                  </div>
-                  <p className="mt-3 text-xs text-ink-soft">
-                    Current team: <span className="text-ink">{activeTeam}</span>. Scores update automatically after each round.
-                  </p>
-                </div>
-              )}
-            </SketchPanel>
-          </>
-        )}
+        {inRoom ? renderPlayersPanel() : multiplayerAvailable && renderPlayOnlinePanel()}
 
         <p className="text-center text-xs text-ink-soft">Sprite data fetched live from the PokéAPI sprites collection.</p>
       </div>

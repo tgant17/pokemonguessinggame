@@ -28,6 +28,8 @@ export type GameView = {
   myScore: number;
   // True when this player can't answer right now: already locked in (waiting for others) or only watching.
   locked: boolean;
+  // The picks this player locked in for the current round, if any.
+  myPicks: number[] | null;
 };
 
 export type RoundResultEvent = { roundIndex: number; round: RoundData; answer: PlayerAnswer };
@@ -42,7 +44,7 @@ export type GameController = {
 const ME = "me";
 
 // Runs a one-player game in the browser. onRoundResult fires once per round, when this player's
-// result is known, so the page can update team scores and the chat log.
+// result is known, so the page can update the chat log.
 export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
   const [game, setGame] = useState<GameState | null>(null);
   const [now, setNow] = useState(() => Date.now());
@@ -105,6 +107,7 @@ export function useLocalGame(onRoundResult: (event: RoundResultEvent) => void) {
       myAnswer: game.answers[ME],
       myScore: game.scores[ME] ?? 0,
       locked: false,
+      myPicks: game.answers[ME]?.pickedIds ?? null,
     };
   }, [game, now]);
 

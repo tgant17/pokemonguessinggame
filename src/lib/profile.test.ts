@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { cleanColor, cleanPokemonId, cleanProfile, hexToHsl, hslToHex, wheelColorAt } from "./profile.ts";
+import { cleanColor, cleanProfile, hexToHsl, hslToHex, wheelColorAt } from "./profile.ts";
 
 test("colors must be #rrggbb and are lowercased", () => {
   assert.equal(cleanColor("#FFAA00"), "#ffaa00");
@@ -10,14 +10,10 @@ test("colors must be #rrggbb and are lowercased", () => {
   assert.equal(cleanColor(42), null);
 });
 
-test("partner Pokémon must be a national Pokédex number", () => {
-  assert.equal(cleanPokemonId(25), 25);
-  assert.equal(cleanPokemonId(0), null);
-  assert.equal(cleanPokemonId(1026), null);
-  assert.equal(cleanPokemonId(2.5), null);
-  assert.equal(cleanPokemonId("25"), null);
-  assert.deepEqual(cleanProfile({ color: "#123456", pokemonId: 7 }), { color: "#123456", pokemonId: 7 });
-  assert.deepEqual(cleanProfile("nope"), { color: null, pokemonId: null });
+test("profiles keep only a valid color", () => {
+  assert.deepEqual(cleanProfile({ color: "#123456", pokemonId: 7 }), { color: "#123456" });
+  assert.deepEqual(cleanProfile({ color: "url(x)" }), { color: null });
+  assert.deepEqual(cleanProfile("nope"), { color: null });
 });
 
 test("hsl and hex convert both ways", () => {

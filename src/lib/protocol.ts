@@ -36,7 +36,7 @@ export type PlayerInfo = {
   profile?: Profile;
   connected: boolean;
   score: number;
-  // True once this player has locked in an answer for the current round.
+  // True while this player has an answer in for the current round (in stacked modes, a full set of picks).
   answered: boolean;
   // This player's result for the current round, sent only once the round is revealed.
   lastResult: PlayerAnswer | null;
@@ -53,7 +53,7 @@ export type RoomGame = {
   frozenSecondsLeft: number | null;
   // Whether the receiving player is in this game, or watching because they joined after it started.
   inGame: boolean;
-  // The receiving player's picks once locked in, and their result once the round is revealed.
+  // The receiving player's recorded picks, and their result once the round is revealed.
   myPicks: number[] | null;
   myAnswer: PlayerAnswer | null;
 };

@@ -429,25 +429,17 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const handleChoice = (choice: PokemonSprite) => {
     if (!currentRound || !canAnswer) return;
     if (isMulti) {
-      // Multi-pick modes: tapping toggles a pick; one tap past the limit replaces the oldest pick.
-      setSelection((prev) => {
-        const ids = prev.round === currentRoundIndex ? prev.ids : [];
-        if (ids.includes(choice.id)) return { round: currentRoundIndex, ids: ids.filter((id) => id !== choice.id) };
-        const next = [...ids, choice.id];
-        return {
-          round: currentRoundIndex,
-          ids: next.length > modeConfig.answerCount ? next.slice(next.length - modeConfig.answerCount) : next,
-        };
-      });
+      // Multi-pick modes: tapping toggles a pick; one tap past the limit replaces the oldest pick. There's no
+      // lock-in: every change is sent, a full set counts as the answer, and fewer withdraws it.
+      const ids = selection.round === currentRoundIndex ? selection.ids : (view?.myPicks ?? []);
+      const toggled = ids.includes(choice.id) ? ids.filter((id) => id !== choice.id) : [...ids, choice.id];
+      const next = toggled.slice(Math.max(0, toggled.length - modeConfig.answerCount));
+      setSelection({ round: currentRoundIndex, ids: next });
+      game.submit(next);
       return;
     }
     setSelection({ round: currentRoundIndex, ids: [choice.id] });
     game.submit([choice.id]);
-  };
-
-  const handleSubmitPicks = () => {
-    if (!currentRound || !canAnswer || selectedIds.length !== modeConfig.answerCount) return;
-    game.submit(selectedIds);
   };
 
   const selectQuestionTime = (value: number) => {
@@ -935,36 +927,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  const renderSendButton = () => {
-    const ready = selectedIds.length === modeConfig.answerCount;
-    return (
-      <button
-        type="button"
-        onClick={handleSubmitPicks}
-        disabled={!ready}
-        className={`relative isolate mt-3 flex w-full items-center justify-center gap-2 rounded-[14px] py-3 text-lg transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-not-allowed ${
-          ready ? "text-paper" : "text-ink-soft"
-        }`}
-      >
-        <SketchFrame
-          radius={14}
-          wobble={1}
-          strokeWidth={2.6}
-          fill={ready ? "ink" : "paper"}
-          stroke={ready ? "var(--ink)" : "var(--ink-faint)"}
-          dotted={!ready}
-        />
-        {ready ? (
-          <>
-            Send <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
-          </>
-        ) : (
-          `Pick ${modeConfig.answerCount - selectedIds.length} more`
-        )}
-      </button>
-    );
-  };
-
   const renderExtras = () => (
     <div className="flex flex-col gap-2">
       <button
@@ -1441,7 +1403,17 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 {renderAnswers()}
                 {gameState === "playing" && !roundRevealed && view?.locked
                   ? renderLockedIn()
-                  : isMulti && gameState === "playing" && status === "idle" && !countingDown && renderSendButton()}
+                  : isMulti &&
+                    gameState === "playing" &&
+                    status === "idle" &&
+                    !countingDown && (
+                      // No lock-in in stacked modes, so say when the picks count instead.
+                      <p className="mt-3 text-center text-sm text-ink-soft">
+                        {selectedIds.length === modeConfig.answerCount
+                          ? "Answer in! Change it any time before the clock runs out."
+                          : `Pick ${modeConfig.answerCount - selectedIds.length} more`}
+                      </p>
+                    )}
               </>
             )}
           </SketchPanel>

@@ -109,6 +109,28 @@ test("a round ends early once everyone still connected has answered", () => {
   assert.equal(early.snapshotFor("ash", T0 + REJOIN_GRACE_MS + 200).game?.phase, "reveal");
 });
 
+test("in stacked modes the round runs to the clock, and picks can change until then", () => {
+  const room = twoPlayerRoom();
+  const hard: GameSettings = { mode: "hard", totalRounds: 1, questionTime: 10 };
+  room.handle("ash", { type: "start", settings: hard, rounds: makeRounds(1, 6, 2) }, T0);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [3, 4], T0 + 500);
+  answer(room, "misty", [1, 2], T0 + 500);
+  let snap = room.snapshotFor("ash", T0 + 500);
+  assert.equal(snap.game?.phase, "playing", "everyone has picked, but they can still change their minds");
+  assert.deepEqual(snap.game?.myPicks, [3, 4]);
+  assert.equal(snap.game?.myAnswer, null, "results stay hidden until the round ends");
+  answer(room, "ash", [1, 2], T0 + 3000);
+  answer(room, "misty", [2], T0 + 3000);
+  assert.equal(room.snapshotFor("misty", T0 + 3000).players.find((p) => p.id === "misty")?.answered, false);
+  room.advance(T0 + 10_000);
+  snap = room.snapshotFor("ash", T0 + 10_000);
+  assert.equal(snap.game?.phase, "reveal");
+  assert.equal(snap.game?.myAnswer?.outcome, "correct");
+  assert.equal(snap.players.find((p) => p.id === "misty")?.lastResult?.outcome, "timeout");
+});
+
 test("refreshing the page doesn't end the round for you", () => {
   const room = twoPlayerRoom();
   start(room);

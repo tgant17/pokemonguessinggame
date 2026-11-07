@@ -3,7 +3,7 @@
 import usePartySocket from "partysocket/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import type { Drawing } from "@/lib/drawing";
-import type { GameSettings } from "@/lib/engine";
+import { answersStayOpen, type GameSettings } from "@/lib/engine";
 import type { PokemonSprite, RoundData } from "@/lib/game";
 import { PreviewRoom } from "@/lib/previewRoom";
 import type { Profile } from "@/lib/profile";
@@ -217,7 +217,8 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       timeLeft,
       myAnswer: game.myAnswer ?? undefined,
       myScore: me?.score ?? 0,
-      locked: !game.inGame || game.myPicks !== null,
+      // Stacked modes keep picks open until the clock runs out, so only a normal-mode answer locks you in.
+      locked: !game.inGame || (game.myPicks !== null && !answersStayOpen(game.settings.mode)),
       myPicks: game.myPicks ?? game.myAnswer?.pickedIds ?? null,
     };
   }, [game, endsAt, now, received?.receivedAt, me?.score]);

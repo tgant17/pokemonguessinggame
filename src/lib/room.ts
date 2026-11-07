@@ -1,9 +1,12 @@
 // One multiplayer room: who's in it, who's hosting, and the game being played. The Worker in
 // party/room.ts wires this to WebSockets; everything here is plain logic so it can be unit-tested.
 
-import { closeRound, createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
-import type { PokemonSprite } from "./game.ts";
+import { closeRound, createGame, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
+import { INTRO_COUNTDOWN_MS, type PokemonSprite } from "./game.ts";
 import {
+  CHAT_BURST,
+  CHAT_TOO_FAST,
+  CHAT_WINDOW_MS,
   MAX_PLAYERS,
   type ClientMessage,
   type PlayerInfo,
@@ -14,6 +17,7 @@ import {
 import type { Profile } from "./profile.ts";
 
 // How long a new round waits for everyone's sprites to load before starting the clock anyway.
+// The first round also waits out the 3-2-1 countdown, since players only say they're ready once it ends.
 export const READY_TIMEOUT_MS = 4000;
 // How long a player who disconnects still counts as in the round, so a page refresh or a brief
 // network drop doesn't end the round (or start the clock) without them.
@@ -34,6 +38,8 @@ export class RoomState {
   private hostId: string | null = null;
   private game: GameState | null = null;
   private gameId = 0;
+  // The options the host has picked for the next game. Only the host can change them; everyone else sees them.
+  private settings: GameSettings | null = null;
   private ready = new Set<string>();
   private waitingSince: number | null = null;
   // When each disconnected player's last connection closed.
@@ -41,9 +47,17 @@ export class RoomState {
   // Joins and renames for the chat log, oldest first. Each game starts a fresh log, like everyone's screen does.
   private events: RoomEvent[] = [];
   private nextEventId = 1;
+  // Goes up whenever the chat log changes, so the server only resends the log when there's something new.
+  private version = 0;
+  // When each player last posted to the chat, newest last, for the flood limit.
+  private posts = new Map<string, number[]>();
 
   constructor(code: string) {
     this.code = code;
+  }
+
+  get logVersion() {
+    return this.version;
   }
 
   isEmpty() {
@@ -112,6 +126,12 @@ export class RoomState {
         this.logTagChange(player, message.name, profile.color);
         break;
       }
+      case "settings": {
+        if (!this.players.has(id)) return "Join the room first.";
+        if (this.currentHost() !== id) return "Only the host can change the game options.";
+        this.settings = message.settings;
+        break;
+      }
       case "start": {
         if (!this.players.has(id)) return "Join the room first.";
         if (this.currentHost() !== id) return "Only the host can start a game.";
@@ -123,8 +143,10 @@ export class RoomState {
         }
         const playerIds = [...this.players.keys()].filter((playerId) => this.isConnected(playerId));
         this.game = createGame(message.settings, message.rounds, playerIds);
+        this.settings = message.settings;
         this.gameId += 1;
         this.events = [];
+        this.version += 1;
         this.enterWaiting(now);
         break;
       }
@@ -138,6 +160,17 @@ export class RoomState {
         if (!this.players.has(message.playerId)) return "That player isn't in the room.";
         if (!this.isConnected(message.playerId)) return "That player is away right now.";
         this.hostId = message.playerId;
+        break;
+      }
+      case "chat":
+      case "drawing": {
+        const player = this.players.get(id);
+        if (!player) return "Join the room first.";
+        const recent = (this.posts.get(id) ?? []).filter((at) => now - at < CHAT_WINDOW_MS);
+        if (recent.length >= CHAT_BURST) return CHAT_TOO_FAST;
+        this.posts.set(id, [...recent, now]);
+        if (message.type === "chat") this.log({ kind: "chat", playerId: id, name: player.name, text: message.text });
+        else this.log({ kind: "drawing", playerId: id, name: player.name, drawing: message.drawing });
         break;
       }
       case "answer": {
@@ -172,12 +205,7 @@ export class RoomState {
     if (!this.game) return null;
     if (this.game.phase === "reveal") return this.game.revealEndsAt;
     if (this.game.phase === "finished") return null;
-    const deadline =
-      this.game.phase === "waiting"
-        ? this.waitingSince !== null
-          ? this.waitingSince + READY_TIMEOUT_MS
-          : null
-        : this.game.roundEndsAt;
+    const deadline = this.game.phase === "waiting" ? this.readyDeadline() : this.game.roundEndsAt;
     // Also wake when someone's rejoin grace runs out, since that can mean everyone left is done.
     const graceEnds = this.game.playerIds
       .map((id) => this.awaySince.get(id))
@@ -187,7 +215,8 @@ export class RoomState {
     return times.length ? Math.min(...times) : null;
   }
 
-  snapshotFor(you: string, now: number): RoomSnapshot {
+  // Pass withLog = false to leave out the chat log, for a player who already has the latest one.
+  snapshotFor(you: string, now: number, withLog = true): RoomSnapshot {
     const game = this.game;
     const revealed = game?.phase === "reveal" || game?.phase === "finished";
     const players: PlayerInfo[] = [...this.players.values()].map((player) => ({
@@ -222,7 +251,8 @@ export class RoomState {
               myAnswer: revealed ? (game.answers[you] ?? null) : null,
             }
           : null,
-      events: [...this.events],
+      settings: this.settings,
+      ...(withLog ? { events: [...this.events] } : {}),
     };
   }
 
@@ -235,6 +265,7 @@ export class RoomState {
     this.events.push({ ...detail, id: this.nextEventId, round: this.logRound() });
     this.nextEventId += 1;
     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
+    this.version += 1;
   }
 
   // A new name, a new aura, or both. They're only sent once the player confirms them, so every change is
@@ -248,6 +279,12 @@ export class RoomState {
   private enterWaiting(now: number) {
     this.ready = new Set();
     this.waitingSince = now;
+  }
+
+  // When a waiting round starts its clock even if not everyone is ready.
+  private readyDeadline(): number | null {
+    if (!this.game || this.waitingSince === null) return null;
+    return this.waitingSince + READY_TIMEOUT_MS + (this.game.roundIndex === 0 ? INTRO_COUNTDOWN_MS : 0);
   }
 
   private isPlaying(id: string) {
@@ -269,7 +306,8 @@ export class RoomState {
 
   private everyoneReady(now: number) {
     if (!this.game) return false;
-    if (this.waitingSince !== null && now >= this.waitingSince + READY_TIMEOUT_MS) return true;
+    const deadline = this.readyDeadline();
+    if (deadline !== null && now >= deadline) return true;
     const present = this.game.playerIds.filter((id) => this.isPresent(id, now));
     return present.length > 0 && present.every((id) => this.ready.has(id));
   }

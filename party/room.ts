@@ -16,6 +16,8 @@ export class Room extends Server<Env> {
   private room: RoomState | null = null;
   private timer: ReturnType<typeof setTimeout> | null = null;
   private cleanup: ReturnType<typeof setTimeout> | null = null;
+  // The chat log version everyone connected was last sent.
+  private sentLogVersion = -1;
 
   private get state() {
     this.room ??= new RoomState(this.name);
@@ -26,7 +28,7 @@ export class Room extends Server<Env> {
     if (this.cleanup) clearTimeout(this.cleanup);
     this.cleanup = null;
     this.state.connect(connection.id);
-    this.sync();
+    this.sync(connection.id);
   }
 
   onMessage(connection: Connection, raw: WSMessage) {
@@ -47,14 +49,22 @@ export class Room extends Server<Env> {
         if (this.timer) clearTimeout(this.timer);
         this.timer = null;
         this.room = null;
+        this.sentLogVersion = -1;
       }, EMPTY_ROOM_TTL_MS);
     }
   }
 
-  // Sends every connection its own view of the room and sets a timer for the next deadline.
-  private sync() {
+  // Sends every connection its own view of the room and sets a timer for the next deadline. The chat log only
+  // goes out when it has changed, or to a player who just connected: it can hold drawings, and the rest of the
+  // room (answers, the clock) changes far more often than the chat does.
+  private sync(newcomer?: string) {
     const now = Date.now();
-    for (const connection of this.getConnections()) this.send(connection, this.state.snapshotFor(connection.id, now));
+    const logChanged = this.state.logVersion !== this.sentLogVersion;
+    this.sentLogVersion = this.state.logVersion;
+    for (const connection of this.getConnections()) {
+      const withLog = logChanged || connection.id === newcomer;
+      this.send(connection, this.state.snapshotFor(connection.id, now, withLog));
+    }
     if (this.timer) clearTimeout(this.timer);
     this.timer = null;
     const wake = this.state.nextWakeAt();

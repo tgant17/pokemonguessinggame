@@ -1,7 +1,8 @@
 "use client";
 
 import usePartySocket from "partysocket/react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { Drawing } from "@/lib/drawing";
 import type { GameSettings } from "@/lib/engine";
 import type { PokemonSprite, RoundData } from "@/lib/game";
 import { PreviewRoom } from "@/lib/previewRoom";
@@ -21,6 +22,7 @@ const partyHost = () => CONFIGURED_HOST ?? (typeof window === "undefined" ? "" :
 
 const PLAYER_ID_KEY = "pgg-player-id";
 const PLAYER_NAME_KEY = "pgg-player-name";
+const LAST_ROOM_KEY = "pgg-last-room";
 
 // Storage can be unavailable (private mode, blocked cookies), so every access is guarded.
 const readStorage = (key: string) => {
@@ -37,6 +39,11 @@ const writeStorage = (key: string, value: string) => {
     // Not fatal: the player just gets a new id next visit.
   }
 };
+// The last room code joined on this device. It's only read to make a first guess, so nothing listens for changes.
+const ignoreChanges = () => () => {};
+const readLastRoom = () => readStorage(LAST_ROOM_KEY);
+// The server can't see storage; undefined there means "can't tell yet".
+const lastRoomOnServer = () => undefined;
 const newId = () =>
   typeof crypto !== "undefined" && "randomUUID" in crypto
     ? crypto.randomUUID()
@@ -53,22 +60,31 @@ export type RoomInfo = {
   inGame: boolean;
   // Changes each time the host starts a new game.
   gameId: number | null;
-  // Joins and renames for the chat log since the current game started, oldest first.
+  // The chat log since the current game started, oldest first: joins, renames, chat lines and drawings.
   events: RoomEvent[];
+  // The options the host has picked for the next game, or null if the host's page hasn't sent any yet.
+  settings: GameSettings | null;
 };
 
 export type RoomController = GameController & {
   room: RoomInfo | null;
   connected: boolean;
   error: string | null;
+  // Whether this device joined this room before, which says whether you're probably still in it until the
+  // room answers (say, after a refresh). Null in the server render, where that can't be told.
+  joinedBefore: boolean | null;
   // Your name as last used on this device ("" if none yet). Solo play shows it too.
   savedName: string;
   saveName: (name: string) => void;
   join: (name: string, partner: PokemonSprite, profile: Profile) => void;
   rename: (name: string, profile?: Profile) => void;
   updateProfile: (profile: Profile) => void;
+  // Host only: shows everyone the options picked for the next game.
+  shareSettings: (settings: GameSettings) => void;
   startGame: (settings: GameSettings, rounds: RoundData[]) => void;
   makeHost: (playerId: string) => void;
+  sendChat: (text: string) => void;
+  sendDrawing: (drawing: Drawing) => void;
 };
 
 type Received = { snapshot: RoomSnapshot; receivedAt: number };
@@ -96,6 +112,9 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     setSavedName(name);
   }, []);
 
+  const lastRoom = useSyncExternalStore(ignoreChanges, readLastRoom, lastRoomOnServer);
+  const joinedBefore = lastRoom === undefined ? null : !!code && lastRoom === code;
+
   const [received, setReceived] = useState<Received | null>(null);
   const [connected, setConnected] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -108,7 +127,12 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       return;
     }
     if (message.type === "error") setError(message.message);
-    else setReceived({ snapshot: message, receivedAt: Date.now() });
+    // The server leaves the chat log out when it hasn't changed, so keep the one already here.
+    else
+      setReceived((prev) => ({
+        snapshot: message.events || !prev ? message : { ...message, events: prev.snapshot.events },
+        receivedAt: Date.now(),
+      }));
   }, []);
 
   const socket = usePartySocket({
@@ -185,6 +209,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
           ? game.settings.questionTime
           : (game.frozenSecondsLeft ?? 0);
     return {
+      gameId: game.gameId,
       settings: game.settings,
       roundIndex: game.roundIndex,
       round: game.round,
@@ -210,6 +235,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       inGame: !!snapshot.game?.inGame,
       gameId: snapshot.game?.gameId ?? null,
       events: snapshot.events ?? [],
+      settings: snapshot.settings ?? null,
     };
   }, [snapshot, me]);
 
@@ -230,14 +256,17 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     (name: string, partner: PokemonSprite, profile: Profile) => {
       setError(null);
       saveName(name);
+      if (code) writeStorage(LAST_ROOM_KEY, code);
       send({ type: "join", name, partner, profile });
     },
-    [send, saveName],
+    [send, saveName, code],
   );
 
   const rename = useCallback((name: string, profile?: Profile) => send({ type: "rename", name, profile }), [send]);
 
   const updateProfile = useCallback((profile: Profile) => send({ type: "profile", profile }), [send]);
+
+  const shareSettings = useCallback((settings: GameSettings) => send({ type: "settings", settings }), [send]);
 
   const startGame = useCallback(
     (settings: GameSettings, rounds: RoundData[]) => {
@@ -249,6 +278,23 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
 
   const makeHost = useCallback((playerId: string) => send({ type: "makeHost", playerId }), [send]);
 
+  // A new post clears the last error, so a "slow down" from the server doesn't hang around after it passes.
+  const sendChat = useCallback(
+    (text: string) => {
+      setError(null);
+      send({ type: "chat", text });
+    },
+    [send],
+  );
+
+  const sendDrawing = useCallback(
+    (drawing: Drawing) => {
+      setError(null);
+      send({ type: "drawing", drawing });
+    },
+    [send],
+  );
+
   return {
     view,
     startClock,
@@ -256,12 +302,16 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     room,
     connected,
     error,
+    joinedBefore,
     savedName,
     saveName,
     join,
     rename,
     updateProfile,
+    shareSettings,
     startGame,
     makeHost,
+    sendChat,
+    sendDrawing,
   };
 }

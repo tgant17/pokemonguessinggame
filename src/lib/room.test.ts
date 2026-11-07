@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { GameSettings } from "./engine.ts";
-import { MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
+import { INTRO_COUNTDOWN_MS, MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
 import {
+  CHAT_BURST,
+  CHAT_WINDOW_MS,
+  MAX_CHAT_LENGTH,
   MAX_NAME_LENGTH,
+  clampChat,
   clampName,
+  cleanChat,
   cleanName,
   isRoomCode,
   makeRoomCode,
@@ -159,9 +164,21 @@ test("a round's clock starts when everyone's sprites are ready, or after a timeo
   const slow = twoPlayerRoom();
   start(slow);
   ready(slow, "ash", T0 + 100);
-  assert.equal(slow.nextWakeAt(), T0 + READY_TIMEOUT_MS);
+  // The first round also waits out the 3-2-1 countdown, since players only say they're ready once it ends.
+  const deadline = T0 + INTRO_COUNTDOWN_MS + READY_TIMEOUT_MS;
+  assert.equal(slow.nextWakeAt(), deadline);
   slow.advance(T0 + READY_TIMEOUT_MS);
-  assert.equal(slow.snapshotFor("ash", T0 + READY_TIMEOUT_MS).game?.phase, "playing");
+  assert.equal(slow.snapshotFor("ash", T0 + READY_TIMEOUT_MS).game?.phase, "waiting", "Misty may still be counting down");
+  slow.advance(deadline);
+  assert.equal(slow.snapshotFor("ash", deadline).game?.phase, "playing");
+
+  // Later rounds have no countdown, so they wait the usual time.
+  answer(slow, "ash", [1], deadline + 100);
+  answer(slow, "misty", [1], deadline + 200);
+  const nextRoundAt = slow.nextWakeAt()!;
+  slow.advance(nextRoundAt);
+  assert.equal(slow.snapshotFor("ash", nextRoundAt).game?.roundIndex, 1);
+  assert.equal(slow.nextWakeAt(), nextRoundAt + READY_TIMEOUT_MS);
 });
 
 test("answers stay private until everyone has answered, then all results are revealed", () => {
@@ -227,6 +244,26 @@ test("someone joining mid-game watches until the next game", () => {
   assert.equal(room.snapshotFor("brock", T0).game?.phase, "playing", "the watcher doesn't hold up the clock");
 });
 
+test("only the host can change the game options, and everyone sees them", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.snapshotFor("misty", T0).settings, null, "no options until the host's page sends them");
+  const hard: GameSettings = { mode: "hard", totalRounds: 10, questionTime: 12, winnerTakesAll: true };
+  assert.equal(room.handle("misty", { type: "settings", settings: hard }, T0), "Only the host can change the game options.");
+  assert.equal(room.snapshotFor("ash", T0).settings, null);
+  assert.equal(room.handle("ash", { type: "settings", settings: hard }, T0), null);
+  assert.deepEqual(room.snapshotFor("misty", T0).settings, hard);
+
+  // Whoever takes over hosting picks from then on.
+  room.handle("ash", { type: "makeHost", playerId: "misty" }, T0);
+  assert.equal(room.handle("ash", { type: "settings", settings }, T0), "Only the host can change the game options.");
+  assert.equal(room.handle("misty", { type: "settings", settings }, T0), null);
+  assert.deepEqual(room.snapshotFor("ash", T0).settings, settings);
+
+  // Starting a game shows the options it was started with, ready for a rematch.
+  room.handle("misty", { type: "start", settings: hard, rounds: makeRounds(10, 6, 2) }, T0);
+  assert.deepEqual(room.snapshotFor("ash", T0).settings, hard);
+});
+
 test("a game can't be started twice, and a finished game can be replayed", () => {
   const room = twoPlayerRoom();
   start(room);
@@ -275,6 +312,10 @@ test("client messages are validated", () => {
   const stray = makeRounds(5);
   stray[0].answers = [mon(99)];
   assert.equal(parse({ ...good, rounds: stray }), null, "answers must be options");
+
+  assert.deepEqual(parse({ type: "settings", settings }), { type: "settings", settings });
+  assert.equal(parse({ type: "settings", settings: { ...settings, questionTime: 600 } }), null, "options are checked like a start's");
+  assert.equal(parse({ type: "settings" }), null);
 
   assert.deepEqual(parse({ type: "answer", gameId: 1, roundIndex: 0, pickedIds: [3] }), {
     type: "answer",
@@ -330,11 +371,20 @@ test("players can change their name after joining, and everyone sees it", () => 
   );
 });
 
-// The chat log as "Ash joined" / "Ash→Red" lines, with the round each happened in ("lobby" between games).
+// The chat log as "Ash joined" / "Ash→Red" / "Ash: hi" / "Ash drew 2 strokes" lines, with the round each
+// happened in ("lobby" between games).
 const chatLog = (room: RoomState, now = T0) =>
-  (room.snapshotFor("ash", now).events ?? []).map((event) =>
-    `${event.round ?? "lobby"}: ${event.kind === "join" ? `${event.name} joined` : `${event.from}→${event.to}`}`,
-  );
+  (room.snapshotFor("ash", now).events ?? []).map((event) => {
+    const line =
+      event.kind === "join"
+        ? `${event.name} joined`
+        : event.kind === "rename"
+          ? `${event.from}→${event.to}`
+          : event.kind === "chat"
+            ? `${event.name}: ${event.text}`
+            : `${event.name} drew ${event.drawing.length} strokes`;
+    return `${event.round ?? "lobby"}: ${line}`;
+  });
 const join = (room: RoomState, id: string, name: string, now = T0) => {
   room.connect(id);
   return room.handle(id, { type: "join", name, partner: mon(74), profile: { color: null } }, now);
@@ -377,7 +427,7 @@ test("a rename line shows the old name in its old aura and the new name in its n
   };
   assert.deepEqual(auras(), ["Ash", "#ff8800", "Red", "#0088ff"]);
   const ash = room.snapshotFor("misty", T0).players.find((player) => player.id === "ash");
-  assert.equal(ash?.profile.color, "#0088ff", "the new aura takes along with the name");
+  assert.equal(ash?.profile?.color, "#0088ff", "the new aura takes along with the name");
 
   // A rename on its own keeps the aura.
   room.handle("ash", { type: "rename", name: "Ash" }, T0);
@@ -471,4 +521,83 @@ test("names are at most 10 characters, counted the way people count them", () =>
   assert.equal(cleanName("Ash Ketch m"), "Ash Ketch", "a space left at the cut is trimmed");
   assert.equal(cleanName("   "), null);
   assert.equal(cleanName(42), null);
+});
+
+const say = (room: RoomState, id: string, text: string, now = T0) => room.handle(id, { type: "chat", text }, now);
+
+test("players can post chat lines and drawings to everyone's log", () => {
+  const room = twoPlayerRoom();
+  assert.equal(say(room, "misty", "hi all"), null);
+  assert.equal(room.handle("ash", { type: "drawing", drawing: [[1, 2, 3, 4], [9, 9]] }, T0), null);
+  assert.deepEqual(chatLog(room).slice(2), ["lobby: Misty: hi all", "lobby: Ash drew 2 strokes"]);
+  const drawing = room.snapshotFor("misty", T0).events?.at(-1);
+  assert.deepEqual(drawing?.kind === "drawing" && drawing.drawing, [[1, 2, 3, 4], [9, 9]]);
+
+  // Lines keep the name the player had when they wrote them.
+  room.handle("misty", { type: "rename", name: "Kasumi" }, T0);
+  say(room, "misty", "new name!");
+  assert.deepEqual(chatLog(room).slice(2), [
+    "lobby: Misty: hi all",
+    "lobby: Ash drew 2 strokes",
+    "lobby: Misty→Kasumi",
+    "lobby: Kasumi: new name!",
+  ]);
+
+  // Only players in the room can post.
+  room.connect("gary");
+  assert.equal(say(room, "gary", "smell ya later"), "Join the room first.");
+  assert.equal(chatLog(room).length, 6);
+});
+
+test("chat during a game goes with the round it was sent in", () => {
+  const room = twoPlayerRoom();
+  say(room, "ash", "ready?");
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  say(room, "misty", "easy one", T0 + 100);
+  assert.deepEqual(chatLog(room), ["0: Misty: easy one"], "a new game starts a fresh log");
+});
+
+test("posting too fast is turned away for a few seconds", () => {
+  const room = twoPlayerRoom();
+  for (let n = 0; n < CHAT_BURST; n += 1) assert.equal(say(room, "ash", `spam ${n}`, T0 + n * 100), null);
+  assert.equal(say(room, "ash", "one more", T0 + CHAT_BURST * 100), "Slow down! Give it a few seconds.");
+  assert.equal(say(room, "misty", "not me", T0 + CHAT_BURST * 100), null, "each player has their own limit");
+  assert.equal(say(room, "ash", "back again", T0 + CHAT_WINDOW_MS), null, "older posts stop counting");
+  assert.equal(chatLog(room).filter((line) => line.includes("one more")).length, 0);
+});
+
+test("the log is only resent when it changes", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.snapshotFor("ash", T0, false).events, undefined, "left out on request");
+  assert.equal(room.snapshotFor("ash", T0).events?.length, 2);
+
+  const changes = (act: () => void) => {
+    const before = room.logVersion;
+    act();
+    return room.logVersion !== before;
+  };
+  assert.equal(changes(() => say(room, "ash", "hello")), true);
+  assert.equal(changes(() => room.handle("misty", { type: "rename", name: "Kasumi" }, T0)), true);
+  assert.equal(changes(() => room.handle("misty", { type: "rename", name: "Misty" }, T0)), true, "an undone rename too");
+  assert.equal(changes(() => start(room)), true, "a new game clears it");
+  assert.equal(changes(() => ready(room, "ash", T0)), false);
+  assert.equal(changes(() => ready(room, "misty", T0)), false);
+  assert.equal(changes(() => answer(room, "ash", [1], T0 + 500)), false);
+  assert.equal(changes(() => room.handle("ash", { type: "profile", profile: { color: "#ff0000" } }, T0)), true, "a new aura");
+  assert.equal(changes(() => room.handle("ash", { type: "profile", profile: { color: "#ff0000" } }, T0)), false, "the same one again");
+  assert.equal(changes(() => say(room, "ash", "too much", T0 + 600) && undefined), true);
+});
+
+test("chat lines are tidied up and kept short", () => {
+  const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
+  assert.deepEqual(parse({ type: "chat", text: "  gotta\ncatch   em all  " }), { type: "chat", text: "gotta catch em all" });
+  assert.equal(parse({ type: "chat", text: "   " }), null);
+  assert.equal(parse({ type: "chat", text: 7 }), null);
+  assert.equal(parse({ type: "drawing", drawing: [[1, 2]] })?.type, "drawing");
+  assert.equal(parse({ type: "drawing", drawing: [[1.5, 2]] }), null);
+
+  assert.equal(cleanChat("⚡".repeat(MAX_CHAT_LENGTH + 5)), "⚡".repeat(MAX_CHAT_LENGTH));
+  assert.equal(clampChat("tab\there "), "tab here ", "a tab becomes a space, and spaces at the end stay while typing");
 });

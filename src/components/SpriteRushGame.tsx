@@ -3,8 +3,11 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChatComposer, DrawingView } from "@/components/ChatComposer";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
+import { CountdownIntro } from "@/components/CountdownIntro";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
+import { JoinRoomScreen } from "@/components/JoinRoomScreen";
 import {
   NameTag,
   SketchFrame,
@@ -28,9 +31,10 @@ import {
   type RoundOutcome,
   type RoundStatus,
 } from "@/lib/game";
+import type { GameSettings } from "@/lib/engine";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
-import { clampName, cleanName, type RoomEvent } from "@/lib/protocol";
+import { cleanName, type RoomEvent } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
 import { NameTagEditor } from "@/components/NameTagEditor";
 import { useProfile } from "@/hooks/useProfile";
@@ -88,6 +92,11 @@ const TIMER_OPTIONS = [
 ];
 // Timers shorter than Normal's 8-second default get the "blitz" treatment so the harder choice stands out.
 const isBlitzTime = (seconds: number) => seconds < MODE_CONFIG.normal.defaultTime;
+const sameSettings = (a: GameSettings, b: GameSettings) =>
+  a.mode === b.mode &&
+  a.totalRounds === b.totalRounds &&
+  a.questionTime === b.questionTime &&
+  !!a.winnerTakesAll === !!b.winnerTakesAll;
 // The timer starts to shake in the last few seconds.
 const URGENT_SECONDS = 3;
 
@@ -144,10 +153,16 @@ function Notice({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
 }
 
 // A full chat message with a name tag hanging off its top-left corner.
-function Message({ tag, children, className = "" }: { tag: Tag; children: ReactNode; className?: string }) {
+// Pass traced to go over the outline twice, as your own posts in a room are.
+function Message({ tag, children, className = "", traced = false }: {
+  tag: Tag;
+  children: ReactNode;
+  className?: string;
+  traced?: boolean;
+}) {
   return (
     <div className={`message-in relative isolate mt-3 px-3 pb-3 pt-5 ${className}`}>
-      <SketchFrame radius={16} wobble={1.1} strokeWidth={2.6} fill="ruled" draw />
+      <SketchFrame radius={16} wobble={1.1} strokeWidth={2.6} fill="ruled" draw traced={traced} />
       <span className="absolute -top-3 left-3">
         <NameTag label={tag.label} color={tag.color} icon={tag.icon} />
       </span>
@@ -224,10 +239,11 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const roomName = room?.me?.name;
   const roomProfile = room?.me?.profile;
   useEffect(() => {
-    if (!roomName || !roomProfile) return;
+    if (!roomName) return;
     if (myName && roomName !== myName) rename(myName, profile.color ? profile : undefined);
     // An aura on its own (and, on room servers that predate renames carrying one, the aura after a rename).
-    else if (profile.color && roomProfile.color !== profile.color) updateProfile(profile);
+    // Servers older still don't keep auras at all, so there's nothing to send them.
+    else if (roomProfile && profile.color && roomProfile.color !== profile.color) updateProfile(profile);
   }, [roomName, roomProfile, myName, profile, rename, updateProfile]);
   useEffect(() => {
     tagRef.current = currentTag;
@@ -276,11 +292,20 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     [],
   );
 
+  // Each game opens with a 3-2-1 countdown. The first round's sprites load behind it but stay hidden, and its
+  // clock only starts at "Go!". introGo is the game whose countdown has reached "Go!"; introDone the game whose
+  // "Go!" has faded away. Someone who arrives once the first round's clock is running doesn't see it.
+  const [introGo, setIntroGo] = useState<number | null>(null);
+  const [introDone, setIntroDone] = useState<number | null>(null);
+  const viewGameId = view?.gameId ?? null;
+  const countingDown = !!view && view.roundIndex === 0 && view.phase === "waiting" && introGo !== view.gameId;
+  const showIntro = countingDown || (viewGameId !== null && introGo === viewGameId && introDone !== viewGameId);
+
   // The round's clock only starts once its sprites are on screen.
   const { startClock } = game;
   useEffect(() => {
-    if (view?.phase === "waiting" && spritesReady) startClock();
-  }, [view?.phase, spritesReady, startClock]);
+    if (view?.phase === "waiting" && spritesReady && !countingDown) startClock();
+  }, [view?.phase, spritesReady, countingDown, startClock]);
 
   useEffect(() => {
     const loadNames = async () => {
@@ -328,13 +353,76 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     setHistory([]);
   }, [roomGameId]);
 
-  // Keep the newest chat message in view, like a chat log.
+  // In a room only the host picks the options, and everyone else sees them change as they're picked.
+  // Players who aren't hosting copy the room's options into their own setup panel, so if hosting passes to
+  // them they carry on from there. A host does the same once when they take over (or reload the page), then
+  // sends each new pick to the room.
+  const { shareSettings } = roomGame;
+  const roomJoined = !!room?.joined;
+  const roomIsHost = !!room?.isHost;
+  const roomSettings = room?.settings ?? null;
+  const followRoomSettings = useRef(true);
   useEffect(() => {
+    if (!roomJoined) return;
+    const picked: GameSettings = { mode: setupMode, totalRounds: setupRounds, questionTime: setupTime };
+    if (setupWinnerTakesAll) picked.winnerTakesAll = true;
+    const inStep = roomSettings !== null && sameSettings(roomSettings, picked);
+    if (!roomIsHost || followRoomSettings.current) {
+      followRoomSettings.current = !roomIsHost;
+      if (roomSettings && !inStep) {
+        setMode(roomSettings.mode);
+        setTotalRounds(roomSettings.totalRounds);
+        setQuestionTime(roomSettings.questionTime);
+        setWinnerTakesAll(!!roomSettings.winnerTakesAll);
+        return;
+      }
+      if (!roomIsHost) return;
+    }
+    if (!inStep) shareSettings(picked);
+  }, [roomJoined, roomIsHost, roomSettings, setupMode, setupRounds, setupTime, setupWinnerTakesAll, shareSettings]);
+  // Everyone but the host sees the options grayed out.
+  const optionsLocked = !!room && !room.isHost;
+
+  // Whether the log is scrolled down to its newest line. Chat only pulls the log down if so, so scrolling back
+  // to read isn't interrupted; otherwise a "new messages" button appears instead.
+  const atBottomRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const [unseenChat, setUnseenChat] = useState(false);
+  const scrollFeedToBottom = useCallback(() => {
     const feed = feedRef.current;
+    atBottomRef.current = true;
+    setUnseenChat(false);
     if (!feed) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     feed.scrollTo({ top: feed.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
-  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, room?.events.length]);
+  }, []);
+  const handleFeedScroll = () => {
+    const feed = feedRef.current;
+    if (!feed) return;
+    const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+    // Only scrolling up counts as leaving the bottom, so the smooth scroll down to a new line doesn't.
+    if (atBottom) {
+      atBottomRef.current = true;
+      setUnseenChat(false);
+    } else if (feed.scrollTop < lastScrollTopRef.current - 2) {
+      atBottomRef.current = false;
+    }
+    lastScrollTopRef.current = feed.scrollTop;
+  };
+
+  // The game itself (a new round, your result) always scrolls into view: you need it to play.
+  useEffect(() => {
+    scrollFeedToBottom();
+  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, roomGame.error, scrollFeedToBottom]);
+
+  // New lines in the chat log follow along only if you're already at the bottom.
+  const lastEvent = room?.events.at(-1);
+  const logKey = room ? `${room.events.length}:${lastEvent?.id ?? 0}` : "";
+  useEffect(() => {
+    if (!logKey) return;
+    if (atBottomRef.current) scrollFeedToBottom();
+    else setUnseenChat(true);
+  }, [logKey, scrollFeedToBottom]);
 
   const canAnswer = view?.phase === "playing" && status === "idle" && !view.locked && spritesReady;
 
@@ -385,6 +473,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       : gameState === "finished"
         ? `${totalRounds}/${totalRounds}`
         : `–/${totalRounds}`;
+  const gameSummary = `${modeConfig.label} · ${totalRounds} rounds · ${questionTime}s${winnerTakesAll ? " · winner takes all" : ""}`;
   const instructions = isMulti
     ? `${capitalize(answerCountWord)} silhouettes are stacked on top of each other. Pick all ${answerCountWord} Pokémon before the ${questionTime}-second clock runs out!`
     : `Study the silhouette and choose the matching Pokémon before the ${questionTime}-second clock runs out. Quicker answers earn more points!`;
@@ -491,7 +580,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     const layout = revealed ? REVEAL_LAYOUT[stackSize] : undefined;
     return (
       <div className="relative h-36 w-full sm:h-44">
-        {!spritesReady && (
+        {!spritesReady && !countingDown && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-ink-soft">
             Loading sprite{stackSize > 1 ? "s" : ""}...
           </div>
@@ -507,8 +596,9 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               className="absolute inset-0 transition-transform duration-500 ease-out"
               style={{
                 transform: `translateX(${offset}) scale(${scale})`,
-                // Stacked silhouettes stay hidden until every sprite has loaded, so none pops in before the others.
-                visibility: spritesReady ? "visible" : "hidden",
+                // Stacked silhouettes stay hidden until every sprite has loaded, so none pops in before the others,
+                // and during the opening countdown, so nobody gets a head start.
+                visibility: spritesReady && !countingDown ? "visible" : "hidden",
               }}
             >
               <Image
@@ -527,6 +617,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             </div>
           );
         })}
+        {/* The opening countdown is drawn right where the first silhouette is about to appear. */}
+        {showIntro && viewGameId !== null && (
+          <CountdownIntro key={viewGameId} onGo={() => setIntroGo(viewGameId)} onDone={() => setIntroDone(viewGameId)} />
+        )}
       </div>
     );
   };
@@ -571,6 +665,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           ) : roundRevealed ? (
             // Watching a room: there's no result of your own to show, just the answer.
             <>{`${currentRound.answers.length > 1 ? "Those were" : "It's"} ${joinNames(currentRound.answers.map((answer) => formatName(answer.name)))}!`}</>
+          ) : countingDown ? (
+            <>Get ready!</>
           ) : (
             <>{isMulti ? `Who are these ${answerCountWord}?` : "Who's that Pokémon?"}</>
           )}
@@ -608,14 +704,44 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  // Joins and renames in a room, in the chat log. A join is a chat message with the player's name tag and partner.
+  // A room player's name tag in the log: the name they posted under, with their color and partner as they are now.
+  // Your own tag shows the color you've picked right away, before the room echoes it back.
+  const playerTag = (playerId: string, name: string): Tag => {
+    const player = room?.players.find((candidate) => candidate.id === playerId);
+    return {
+      label: name,
+      // Room servers that predate profiles don't send one, so read it carefully (see PlayerInfo).
+      color: playerId === room?.you ? profile.color : player?.profile?.color,
+      icon: player?.partner ? pokemonIconUrl(player.partner.id) : null,
+    };
+  };
+
+  // What happened in a room, in the chat log: joins, renames, and what players wrote or drew.
   const renderRoomEvent = (event: RoomEvent) => {
     // Lines keep the auras players had at the time, even after they pick new ones. Room servers that predate
     // that don't send them, so there a line falls back to the player's current aura.
     const currentColor = () =>
       event.playerId === room?.you
         ? profile.color
-        : room?.players.find((player) => player.id === event.playerId)?.profile.color;
+        : room?.players.find((player) => player.id === event.playerId)?.profile?.color;
+    if (event.kind === "chat" || event.kind === "drawing") {
+      const tag = playerTag(event.playerId, event.name);
+      const mine = event.playerId === room?.you;
+      if (event.kind === "drawing") {
+        return (
+          <Message key={`event-${event.id}`} tag={tag} traced={mine}>
+            <DrawingView drawing={event.drawing} label={`A drawing by ${event.name}`} className="mx-auto max-w-[20rem]" />
+          </Message>
+        );
+      }
+      return (
+        <div key={`event-${event.id}`} className="message-in relative isolate flex items-start gap-2.5 py-2 pl-2.5 pr-3">
+          <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" traced={mine} />
+          <NameTag label={tag.label} color={tag.color} icon={tag.icon} className="mt-px max-w-[40%]" />
+          <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">{event.text}</p>
+        </div>
+      );
+    }
     if (event.kind === "rename") {
       return (
         <Notice key={`event-${event.id}`}>
@@ -670,11 +796,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         {isSetup && history.length === 0 && (
           <>
             <Notice>
-              {room && !room.joined
-                ? "Make a name tag below to join"
-                : room && !room.isHost
-                  ? "You're in! The host will start soon"
-                  : "Welcome! Set up a game below"}
+              {room && !room.isHost ? "You're in! The host will start soon" : "Welcome! Set up a game below"}
             </Notice>
             <Message tag={HOST_TAG} className="flex items-start gap-3">
               <SketchIcon name="pokeball" className="mt-1 h-14 w-14 sm:h-16 sm:w-16" strokeWidth={2} draw />
@@ -691,11 +813,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             </Message>
           </>
         )}
-        {history.length > 0 && (
-          <Notice>
-            {MODE_CONFIG[mode].label} · {totalRounds} rounds · {questionTime}s{winnerTakesAll ? " · winner takes all" : ""}
-          </Notice>
-        )}
+        {(history.length > 0 || gameState === "playing") && <Notice>{gameSummary}</Notice>}
         {gameLog}
         {renderCurrentRound()}
         {gameState === "finished" && (
@@ -741,7 +859,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   };
 
   const renderAnswers = () => {
-    if (gameState !== "playing" || !currentRound) {
+    // The options stay as blanks during the opening countdown too, so nobody can read them early.
+    if (gameState !== "playing" || !currentRound || countingDown) {
       return (
         <div className="grid grid-cols-2 gap-2.5 sm:gap-3">
           {Array.from({ length: modeConfig.optionCount }).map((_, index) => (
@@ -868,8 +987,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           role="switch"
           aria-checked={setupWinnerTakesAll}
           onClick={() => setWinnerTakesAll((prev) => !prev)}
-          disabled={isPreparing}
-          className={`${choiceButtonClass(false)} flex items-center gap-3 px-3 py-2.5 text-left`}
+          disabled={isPreparing || optionsLocked}
+          className={`${choiceButtonClass(false)} flex items-center gap-3 px-3 py-2.5 text-left ${optionsLocked ? "opacity-50" : ""}`}
         >
           <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
           <span className="min-w-0 flex-1">
@@ -894,7 +1013,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <SectionLabel>Mode</SectionLabel>
-        <div className="grid grid-cols-3 gap-2">
+        <div className={`grid grid-cols-3 gap-2 ${optionsLocked ? "opacity-50" : ""}`}>
           {(Object.keys(MODE_CONFIG) as GameMode[]).map((value) => {
             const selected = mode === value;
             return (
@@ -902,7 +1021,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 key={value}
                 type="button"
                 onClick={() => selectMode(value)}
-                disabled={isPreparing}
+                disabled={isPreparing || optionsLocked}
                 aria-pressed={selected}
                 className={`${choiceButtonClass(selected)} px-2 py-2.5 text-left min-[380px]:px-2.5 sm:px-3`}
               >
@@ -925,7 +1044,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       <div className="grid gap-4 sm:grid-cols-[auto,1fr] sm:gap-6">
         <div className="flex flex-col gap-2">
           <SectionLabel>Rounds</SectionLabel>
-          <div className="flex gap-2">
+          <div className={`flex gap-2 ${optionsLocked ? "opacity-50" : ""}`}>
             {ROUND_OPTIONS.map((value) => {
               const selected = totalRounds === value;
               return (
@@ -933,7 +1052,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   key={value}
                   type="button"
                   onClick={() => setTotalRounds(value)}
-                  disabled={isPreparing}
+                  disabled={isPreparing || optionsLocked}
                   aria-pressed={selected}
                   aria-label={`${value} rounds`}
                   className={`${choiceButtonClass(selected)} flex h-[3.75rem] min-w-[3.5rem] items-center justify-center px-3 text-lg sm:min-w-[3.75rem]`}
@@ -948,7 +1067,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
         <div className="flex flex-col gap-2">
           <SectionLabel>Timer</SectionLabel>
-          <div className="grid grid-cols-4 gap-2">
+          <div className={`grid grid-cols-4 gap-2 ${optionsLocked ? "opacity-50" : ""}`}>
             {TIMER_OPTIONS.map(({ seconds, pokemon, icon }) => {
               const selected = questionTime === seconds;
               return (
@@ -956,7 +1075,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   key={seconds}
                   type="button"
                   onClick={() => selectQuestionTime(seconds)}
-                  disabled={isPreparing}
+                  disabled={isPreparing || optionsLocked}
                   aria-pressed={selected}
                   title={pokemon}
                   className={`${choiceButtonClass(selected)} flex h-[3.75rem] flex-col items-center justify-center px-1`}
@@ -992,42 +1111,58 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
       {inRoom && renderExtras()}
 
-      <button
-        type="button"
-        onClick={prepareRounds}
-        disabled={isPreparing}
-        className={`relative isolate mt-1 flex w-full items-center justify-center gap-2 rounded-[16px] py-3.5 text-xl transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-wait ${
-          isPreparing ? "text-ink-soft" : "text-paper"
-        }`}
-      >
-        <SketchFrame
-          radius={16}
-          wobble={1.1}
-          strokeWidth={2.8}
-          fill={isPreparing ? "paper" : "ink"}
-          stroke={isPreparing ? "var(--ink-faint)" : "var(--ink)"}
-          dotted={isPreparing}
-        />
-        {isPreparing ? (
-          <>
-            Preparing questions<span className="blink">…</span>
-          </>
-        ) : (
-          <>
-            {gameState === "finished" ? "Play again" : "Start game"}
-            <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
-          </>
-        )}
-      </button>
+      {optionsLocked ? (
+        <div className="relative isolate mt-1 flex w-full flex-col items-center gap-0.5 rounded-[16px] px-3 py-3 text-center">
+          <SketchFrame radius={16} wobble={1.1} strokeWidth={2.8} fill="paper" stroke="var(--ink-faint)" dotted />
+          <p className="font-hand text-xl font-bold leading-tight">
+            {gameState === "finished" ? `Waiting for ${hostName} to start a rematch` : `Waiting for ${hostName} to start`}
+            <span className="blink">…</span>
+          </p>
+          <p className="text-xs text-ink-soft">Only {hostName} can change the options.</p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={prepareRounds}
+          disabled={isPreparing}
+          className={`relative isolate mt-1 flex w-full items-center justify-center gap-2 rounded-[16px] py-3.5 text-xl transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-wait ${
+            isPreparing ? "text-ink-soft" : "text-paper"
+          }`}
+        >
+          <SketchFrame
+            radius={16}
+            wobble={1.1}
+            strokeWidth={2.8}
+            fill={isPreparing ? "paper" : "ink"}
+            stroke={isPreparing ? "var(--ink-faint)" : "var(--ink)"}
+            dotted={isPreparing}
+          />
+          {isPreparing ? (
+            <>
+              Preparing questions<span className="blink">…</span>
+            </>
+          ) : (
+            <>
+              {gameState === "finished" ? "Play again" : "Start game"}
+              <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
+            </>
+          )}
+        </button>
+      )}
     </div>
   );
 
   // --- Multiplayer rooms ---
 
-  // Null until the player types, so the name saved from a previous room fills the field.
-  const [nameDraft, setNameDraft] = useState<string | null>(null);
-  const joinName = nameDraft ?? clampName(roomGame.savedName);
-  const joining = !!room && !room.joined;
+  // You make your name tag on a page of its own before the game screen. Until the room answers, go by whether
+  // this device joined it before, so a refresh mid-game goes straight back to the game instead of flashing
+  // the join page. The server render can't tell either way, so it just says it's connecting.
+  let joinScreen: "join" | "connecting" | null = null;
+  if (roomCode && multiplayerAvailable) {
+    if (room) joinScreen = room.joined ? null : "join";
+    else if (roomGame.joinedBefore === null) joinScreen = "connecting";
+    else if (!roomGame.joinedBefore) joinScreen = "join";
+  }
   const [copied, setCopied] = useState(false);
   // Built after mount: the server doesn't know the site's address, and both renders must match.
   const [roomUrl, setRoomUrl] = useState("");
@@ -1061,28 +1196,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       // Clipboard can be blocked; the link is on screen to copy by hand.
     }
   };
-
-  const renderJoinForm = () => (
-    <JoinRoomForm
-      roomCode={roomCode ?? ""}
-      pokemonNames={pokemonNames}
-      name={joinName}
-      onNameChange={setNameDraft}
-      connected={roomGame.connected}
-      onJoin={(name, partner) => roomGame.join(name, partner, profile)}
-    />
-  );
-
-  const renderWaitingForHost = () => (
-    <div className="flex flex-col items-center gap-2 py-6 text-center">
-      <SketchIcon name="pokeball" className="h-12 w-12" strokeWidth={2} draw />
-      <p className="font-hand text-2xl font-bold leading-tight">
-        {gameState === "finished" ? "Waiting for a rematch" : "Waiting for the game to start"}
-        <span className="blink">…</span>
-      </p>
-      <p className="text-sm text-ink-soft">{hostName} is hosting and picks the mode, rounds and timer.</p>
-    </div>
-  );
 
   const renderLockedIn = () => (
     <p aria-live="polite" className="mt-3 text-center font-hand text-xl font-bold leading-tight">
@@ -1145,7 +1258,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   {/* Your own tag shows your name and color right away, before the room echoes them back. */}
                   <NameTag
                     label={isYou ? (myName ?? player.name) : player.name}
-                    color={(isYou ? profile : player.profile).color}
+                    color={isYou ? profile.color : player.profile?.color}
                   />
                   <span className="shrink-0 whitespace-nowrap text-xs text-ink-soft">
                     {isYou && "you"}
@@ -1188,9 +1301,9 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   const bottomPrompt = () => {
     if (gameState === "loading") return "Loading…";
-    if (joining) return "Make your name tag";
     if (room && isSetup && !room.isHost) return `Room ${room.code}`;
     if (isSetup) return "Set up a game";
+    if (countingDown) return "Get ready…";
     if (roundRevealed) return "Next round…";
     if (view?.locked) return room?.inGame ? "Locked in" : "Watching";
     if (isMulti) return `Pick ${answerCountWord} · ${selectedIds.length}/${modeConfig.answerCount}`;
@@ -1206,6 +1319,33 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       ))}
     </div>
   );
+
+  if (roomCode && joinScreen) {
+    return (
+      <JoinRoomScreen error={errorMessage ?? roomGame.error}>
+        {joinScreen === "join" && (
+          <JoinRoomForm
+            roomCode={roomCode}
+            pokemonNames={pokemonNames}
+            savedName={roomGame.savedName}
+            roomNote={
+              !room
+                ? ""
+                : room.players.length === 0
+                  ? "No one's here yet"
+                  : `${room.players.length} player${room.players.length === 1 ? "" : "s"} here`
+            }
+            connected={roomGame.connected}
+            onJoin={(name, partner, color) => {
+              // The aura picked on the join page becomes your saved one, so a refresh mid-game keeps it.
+              setProfile({ color });
+              roomGame.join(name, partner, { ...profile, color });
+            }}
+          />
+        )}
+      </JoinRoomScreen>
+    );
+  }
 
   return (
     <main className="min-h-screen px-4 pb-12 pt-8 text-ink sm:pt-10">
@@ -1226,19 +1366,53 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         </header>
 
         <div>
-          {/* Top screen: the chat log. Before the first game it only holds the welcome, so it
-              hugs that instead of leaving a gap above it; once rounds start it locks to a fixed
-              height so the answer buttons below don't shift as messages arrive. */}
-          <SketchPanel
-            fill="chrome"
-            className={`flex flex-col p-2.5 ${
-              history.length === 0 && gameState !== "playing" ? "max-h-[23rem] sm:max-h-[26rem]" : "h-[23rem] sm:h-[26rem]"
-            }`}
-          >
-            {renderStatusStrip()}
-            <div ref={feedRef} className="feed-scroll min-h-0 flex-1 overflow-y-auto rounded-[12px] px-2 pb-3 pt-1 sm:px-3">
-              <div className="flex min-h-full flex-col justify-end gap-2.5">{renderFeed()}</div>
+          {/* Top screen: the chat log. Between games it grows with what's in it (at first just the
+              welcome) up to a cap, then scrolls; once rounds start it locks to a fixed height so the
+              answer buttons below don't shift as messages arrive. In a room, the composer sits under it. */}
+          <SketchPanel fill="chrome" className="flex flex-col p-2.5">
+            <div
+              className={`flex min-h-0 flex-col ${
+                history.length === 0 && gameState !== "playing" ? "max-h-[23rem] sm:max-h-[26rem]" : "h-[23rem] sm:h-[26rem]"
+              }`}
+            >
+              {renderStatusStrip()}
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <div
+                  ref={feedRef}
+                  onScroll={handleFeedScroll}
+                  className="feed-scroll min-h-0 flex-1 overflow-y-auto rounded-[12px] px-2 pb-3 pt-1 sm:px-3"
+                >
+                  <div className="flex min-h-full flex-col justify-end gap-2.5">{renderFeed()}</div>
+                </div>
+                {unseenChat && (
+                  <button
+                    type="button"
+                    onClick={scrollFeedToBottom}
+                    className="message-in absolute bottom-2 left-1/2 isolate flex -translate-x-1/2 items-center gap-1 rounded-[10px] px-3 py-1 text-xs text-ink focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                  >
+                    <SketchFrame radius={10} wobble={0.7} strokeWidth={2} fill="paper" />
+                    New messages
+                    <SketchIcon name="arrowDown" className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  </button>
+                )}
+              </div>
             </div>
+            {room?.joined && (
+              <div className="px-2 pb-1">
+                <SketchLine className="mb-2.5 h-1.5 text-ink" />
+                <ChatComposer
+                  disabled={!roomGame.connected}
+                  onSendText={(text) => {
+                    roomGame.sendChat(text);
+                    scrollFeedToBottom();
+                  }}
+                  onSendDrawing={(drawing) => {
+                    roomGame.sendDrawing(drawing);
+                    scrollFeedToBottom();
+                  }}
+                />
+              </div>
+            )}
           </SketchPanel>
 
           {renderHinge()}
@@ -1247,11 +1421,10 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
               <NameTagEditor
-                label={joining ? (cleanName(joinName) ?? currentTag.label) : currentTag.label}
+                label={currentTag.label}
                 icon={currentTag.icon}
-                // While joining, this edits the same name as the join form below it.
-                name={joining ? joinName : roomGame.savedName}
-                onNameChange={joining ? setNameDraft : roomGame.saveName}
+                name={roomGame.savedName}
+                onNameChange={roomGame.saveName}
                 color={profile.color}
                 onColorChange={(color) => setProfile({ color })}
                 pokemonNames={pokemonNames}
@@ -1261,16 +1434,14 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             </div>
             {gameState === "loading" ? (
               renderAnswers()
-            ) : room && !room.joined ? (
-              renderJoinForm()
             ) : isSetup ? (
-              room && !room.isHost ? renderWaitingForHost() : renderGameSetup()
+              renderGameSetup()
             ) : (
               <>
                 {renderAnswers()}
                 {gameState === "playing" && !roundRevealed && view?.locked
                   ? renderLockedIn()
-                  : isMulti && gameState === "playing" && status === "idle" && renderSendButton()}
+                  : isMulti && gameState === "playing" && status === "idle" && !countingDown && renderSendButton()}
               </>
             )}
           </SketchPanel>

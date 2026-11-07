@@ -1,12 +1,19 @@
 // Messages between a multiplayer room server (party/room.ts) and the browser (useRoomGame).
 // Shared by both sides; keep it free of React/Next and Worker-only imports.
 
+import { parseDrawing, type Drawing } from "./drawing.ts";
 import type { GamePhase, GameSettings, PlayerAnswer } from "./engine.ts";
 import { MODE_CONFIG, ROUND_OPTIONS, type GameMode, type PokemonSprite, type RoundData } from "./game.ts";
 import { cleanProfile, type Profile } from "./profile.ts";
 
 export const MAX_NAME_LENGTH = 10;
 export const MAX_PLAYERS = 12;
+export const MAX_CHAT_LENGTH = 120;
+// Each player can post this many chat lines or drawings in any CHAT_WINDOW_MS, so nobody can flood the log.
+// The server enforces it; the composer checks it too, so a post that would be turned away stays unsent.
+export const CHAT_BURST = 6;
+export const CHAT_WINDOW_MS = 8_000;
+export const CHAT_TOO_FAST = "Slow down! Give it a few seconds.";
 export const ROOM_CODE_LENGTH = 4;
 // Letters only, minus ones that are easy to misread aloud or on screen (I, L, O).
 const ROOM_CODE_ALPHABET = "ABCDEFGHJKMNPQRSTUVWXYZ";
@@ -24,8 +31,9 @@ export type PlayerInfo = {
   name: string;
   // The Pokémon this player picked to play alongside them (null for clients that predate partners).
   partner: PokemonSprite | null;
-  // The name color this player picked, shown wherever their name appears.
-  profile: Profile;
+  // The name color this player picked, shown wherever their name appears. Missing from room servers that
+  // predate profiles, so the page must cope without it rather than crash when it draws other players.
+  profile?: Profile;
   connected: boolean;
   score: number;
   // True once this player has locked in an answer for the current round.
@@ -71,7 +79,10 @@ export type RoomEventDetail =
       // Missing from room servers that predate it.
       fromColor?: string | null;
       toColor?: string | null;
-    };
+    }
+  // Something a player wrote or drew, under the name they had when they posted it.
+  | { kind: "chat"; playerId: string; name: string; text: string }
+  | { kind: "drawing"; playerId: string; name: string; drawing: Drawing };
 
 export type RoomEvent = RoomEventDetail & {
   id: number;
@@ -86,8 +97,11 @@ export type RoomSnapshot = {
   hostId: string | null;
   players: PlayerInfo[];
   game: RoomGame | null;
-  // Joins and renames since the current game started (or since the room opened), oldest first.
-  // Missing from room servers that predate the chat log.
+  // The options the host has picked for the next game, so everyone else can see them before it starts.
+  // Null until the host's page sends them; missing from room servers that predate shared options.
+  settings?: GameSettings | null;
+  // The chat log since the current game started (or since the room opened), oldest first. Left out when it
+  // hasn't changed since the last snapshot, since it can hold drawings: keep the one you already have.
   events?: RoomEvent[];
 };
 
@@ -98,10 +112,13 @@ export type ClientMessage =
   | { type: "profile"; profile: Profile }
   // A new name can bring a new aura with it, so the chat line shows the change in one go.
   | { type: "rename"; name: string; profile?: Profile }
+  | { type: "settings"; settings: GameSettings }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
   | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] }
-  | { type: "makeHost"; playerId: string };
+  | { type: "makeHost"; playerId: string }
+  | { type: "chat"; text: string }
+  | { type: "drawing"; drawing: Drawing };
 
 // --- Validation of messages from browsers. The server trusts nothing it receives. ---
 
@@ -114,7 +131,7 @@ const isIndex = (value: unknown): value is number => Number.isInteger(value) && 
 export const nameLength = (value: string) => Array.from(value).length;
 
 const stripControls = (value: string) => value.replace(/\p{Cc}/gu, "");
-const clampLength = (value: string) => Array.from(value).slice(0, MAX_NAME_LENGTH).join("");
+const clampLength = (value: string, max = MAX_NAME_LENGTH) => Array.from(value).slice(0, max).join("");
 
 // Applied while typing: drops control characters (tabs, newlines) and stops at the limit.
 export const clampName = (value: string) => clampLength(stripControls(value));
@@ -124,6 +141,16 @@ export const cleanName = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
   const name = clampLength(stripControls(value).replace(/\s+/g, " ").trim()).trim();
   return name.length ? name : null;
+};
+
+// Applied while typing a chat line: stops at the limit. Newlines become spaces rather than joining words.
+export const clampChat = (value: string) => clampLength(stripControls(value.replace(/\s+/g, " ")), MAX_CHAT_LENGTH);
+
+// A chat line as everyone sees it: single spaces, none at either end, at most MAX_CHAT_LENGTH characters.
+export const cleanChat = (value: unknown): string | null => {
+  if (typeof value !== "string") return null;
+  const text = clampChat(value).trim();
+  return text.length ? text : null;
 };
 
 const SPRITE_HOSTS = ["assets.pokemon.com", "raw.githubusercontent.com"];
@@ -192,6 +219,10 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
       if (!name) return null;
       return data.profile == null ? { type: "rename", name } : { type: "rename", name, profile: cleanProfile(data.profile) };
     }
+    case "settings": {
+      const settings = parseSettings(data.settings);
+      return settings ? { type: "settings", settings } : null;
+    }
     case "start": {
       const settings = parseSettings(data.settings);
       if (!settings || !Array.isArray(data.rounds) || data.rounds.length !== settings.totalRounds) return null;
@@ -211,6 +242,14 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
       return typeof data.playerId === "string" && data.playerId.length > 0 && data.playerId.length <= 100
         ? { type: "makeHost", playerId: data.playerId }
         : null;
+    case "chat": {
+      const text = cleanChat(data.text);
+      return text ? { type: "chat", text } : null;
+    }
+    case "drawing": {
+      const drawing = parseDrawing(data.drawing);
+      return drawing ? { type: "drawing", drawing } : null;
+    }
     default:
       return null;
   }

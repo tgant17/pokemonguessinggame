@@ -95,7 +95,7 @@ type NameTagEditorProps = {
   icon?: string | null;
   // The name being edited, which may be empty.
   name: string;
-  // Called with the new name once it's confirmed with the check (or Enter), not on every key.
+  // Called with the new name and color once they're confirmed with the check (or Enter), not as you edit.
   onNameChange: (name: string) => void;
   color: string | null;
   onColorChange: (hex: string) => void;
@@ -106,8 +106,8 @@ type NameTagEditorProps = {
 
 /**
  * Your own name tag, with a small color-wheel dot inside it. Tapping it pops open a box to change your name
- * and color. A new name only takes once you tick the check (or press Enter), so a room hears about it once;
- * tapping anywhere else or pressing Escape closes the box and keeps the name you had. The color changes as you pick it.
+ * and color. Neither takes until you tick the check (or press Enter), so a room hears about it once;
+ * tapping anywhere else or pressing Escape closes the box and keeps the name and color you had.
  */
 export function NameTagEditor({
   label,
@@ -123,6 +123,7 @@ export function NameTagEditor({
   const counterId = useId();
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState("");
+  const [colorDraft, setColorDraft] = useState<string | null>(null);
   // Counts rolls so the die can tumble again on every one.
   const [rolls, setRolls] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -132,6 +133,7 @@ export function NameTagEditor({
 
   const openEditor = () => {
     setDraft(clampName(name));
+    setColorDraft(color);
     setOpen(true);
   };
 
@@ -140,9 +142,10 @@ export function NameTagEditor({
     if (refocus) buttonRef.current?.focus();
   }, []);
 
-  const saveName = () => {
+  const save = () => {
     if (!usableDraft) return;
     if (usableDraft !== name) onNameChange(usableDraft);
+    if (colorDraft && colorDraft !== color) onColorChange(colorDraft);
     close(true);
   };
 
@@ -211,7 +214,7 @@ export function NameTagEditor({
             <form
               onSubmit={(event) => {
                 event.preventDefault();
-                saveName();
+                save();
               }}
               className="flex items-center gap-1.5"
             >
@@ -248,12 +251,12 @@ export function NameTagEditor({
                   <SketchIcon name="dice" className="h-5 w-5" strokeWidth={2.2} />
                 </span>
               </button>
-              {/* An empty name box can't be saved; Escape or tapping away keeps the old name instead. */}
+              {/* An empty name box can't be saved; Escape or tapping away keeps the old name and aura instead. */}
               <button
                 type="submit"
                 disabled={!usableDraft}
-                aria-label="Save name"
-                title="Save name"
+                aria-label="Save name and aura"
+                title="Save name and aura"
                 className={`${choiceButtonClass(!!usableDraft)} flex h-10 w-10 shrink-0 items-center justify-center disabled:text-ink-faint`}
               >
                 <SketchFrame
@@ -268,7 +271,7 @@ export function NameTagEditor({
               </button>
             </form>
             <div className="flex flex-col items-center gap-2">
-              <ColorWheel color={color} onChange={onColorChange} size={120} labelledBy={auraLabelId} />
+              <ColorWheel color={colorDraft} onChange={setColorDraft} size={120} labelledBy={auraLabelId} />
               <p id={auraLabelId} className="font-hand text-xl font-bold leading-none">
                 Your aura
               </p>

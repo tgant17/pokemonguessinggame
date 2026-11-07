@@ -14,7 +14,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - In Hard and Legendary, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI.
 - Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard. Each player joins with a name tag (up to 10 characters, or roll the die for two Pokémon names mashed together) and a partner picked from three random Pokémon.
-- Your name tag: tap it to change your name (type one or roll the die) and pick its color on a color wheel. A new name takes when you tick the check; the color changes as you pick it. Both are remembered on your device, and in a room everyone sees changes right away.
+- Your name tag: tap it to change your name (type one or roll the die) and pick its color on a color wheel. Neither changes until you tick the check. Both are remembered on your device, and in a room everyone sees changes right away.
 - **Extras → Winner takes all** (rooms only, toggle under the main settings): the first player to answer fully right takes the whole pot (speed points × number of players) and the round ends there. Everyone else scores 0 that round. You get one guess each, with no partial credit in Hard and Legendary. If nobody gets it, nobody scores.
 
 ## Getting started

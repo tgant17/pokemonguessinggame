@@ -218,19 +218,15 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     [inRoom, myName, room?.me?.name, room?.me?.partner, profile],
   );
 
-  // Keep the room's copy of your color in step with what you pick here.
+  // Keep the room's copy of your color in step with what you pick here. The name tag only saves a color
+  // once it's confirmed, so each change goes straight to the room.
   const { updateProfile } = roomGame;
   const roomProfile = room?.me?.profile;
   useEffect(() => {
-    if (!roomProfile || !profile.color) return;
-    if (roomProfile.color === profile.color) return;
-    // Dragging across the wheel changes the color many times a second; send only where it settles.
-    const timer = setTimeout(() => updateProfile(profile), 150);
-    return () => clearTimeout(timer);
+    if (roomProfile && profile.color && roomProfile.color !== profile.color) updateProfile(profile);
   }, [roomProfile, profile, updateProfile]);
 
-  // Same for your name, which can be changed after joining. The name tag only saves a name once it's
-  // confirmed, so each change goes straight to the room (and its chat log).
+  // Same for your name, which can be changed after joining; each saved change also goes in the chat log.
   const { rename } = roomGame;
   const roomName = room?.me?.name;
   useEffect(() => {

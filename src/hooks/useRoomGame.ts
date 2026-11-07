@@ -2,6 +2,7 @@
 
 import usePartySocket from "partysocket/react";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import type { Drawing } from "@/lib/drawing";
 import type { GameSettings } from "@/lib/engine";
 import type { PokemonSprite, RoundData } from "@/lib/game";
 import { PreviewRoom } from "@/lib/previewRoom";
@@ -59,7 +60,7 @@ export type RoomInfo = {
   inGame: boolean;
   // Changes each time the host starts a new game.
   gameId: number | null;
-  // Joins and renames for the chat log since the current game started, oldest first.
+  // The chat log since the current game started, oldest first: joins, renames, chat lines and drawings.
   events: RoomEvent[];
   // The options the host has picked for the next game, or null if the host's page hasn't sent any yet.
   settings: GameSettings | null;
@@ -82,6 +83,8 @@ export type RoomController = GameController & {
   shareSettings: (settings: GameSettings) => void;
   startGame: (settings: GameSettings, rounds: RoundData[]) => void;
   makeHost: (playerId: string) => void;
+  sendChat: (text: string) => void;
+  sendDrawing: (drawing: Drawing) => void;
 };
 
 type Received = { snapshot: RoomSnapshot; receivedAt: number };
@@ -124,7 +127,12 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       return;
     }
     if (message.type === "error") setError(message.message);
-    else setReceived({ snapshot: message, receivedAt: Date.now() });
+    // The server leaves the chat log out when it hasn't changed, so keep the one already here.
+    else
+      setReceived((prev) => ({
+        snapshot: message.events || !prev ? message : { ...message, events: prev.snapshot.events },
+        receivedAt: Date.now(),
+      }));
   }, []);
 
   const socket = usePartySocket({
@@ -270,6 +278,23 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
 
   const makeHost = useCallback((playerId: string) => send({ type: "makeHost", playerId }), [send]);
 
+  // A new post clears the last error, so a "slow down" from the server doesn't hang around after it passes.
+  const sendChat = useCallback(
+    (text: string) => {
+      setError(null);
+      send({ type: "chat", text });
+    },
+    [send],
+  );
+
+  const sendDrawing = useCallback(
+    (drawing: Drawing) => {
+      setError(null);
+      send({ type: "drawing", drawing });
+    },
+    [send],
+  );
+
   return {
     view,
     startClock,
@@ -286,5 +311,7 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     shareSettings,
     startGame,
     makeHost,
+    sendChat,
+    sendDrawing,
   };
 }

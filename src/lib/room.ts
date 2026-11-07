@@ -4,6 +4,9 @@
 import { closeRound, createGame, startClock, submitAnswer, tick, type GameSettings, type GameState } from "./engine.ts";
 import { INTRO_COUNTDOWN_MS, type PokemonSprite } from "./game.ts";
 import {
+  CHAT_BURST,
+  CHAT_TOO_FAST,
+  CHAT_WINDOW_MS,
   MAX_PLAYERS,
   type ClientMessage,
   type PlayerInfo,
@@ -48,9 +51,17 @@ export class RoomState {
   private events: RoomEvent[] = [];
   private nextEventId = 1;
   private lastEventAt = 0;
+  // Goes up whenever the chat log changes, so the server only resends the log when there's something new.
+  private version = 0;
+  // When each player last posted to the chat, newest last, for the flood limit.
+  private posts = new Map<string, number[]>();
 
   constructor(code: string) {
     this.code = code;
+  }
+
+  get logVersion() {
+    return this.version;
   }
 
   isEmpty() {
@@ -134,6 +145,7 @@ export class RoomState {
         this.settings = message.settings;
         this.gameId += 1;
         this.events = [];
+        this.version += 1;
         this.enterWaiting(now);
         break;
       }
@@ -147,6 +159,17 @@ export class RoomState {
         if (!this.players.has(message.playerId)) return "That player isn't in the room.";
         if (!this.isConnected(message.playerId)) return "That player is away right now.";
         this.hostId = message.playerId;
+        break;
+      }
+      case "chat":
+      case "drawing": {
+        const player = this.players.get(id);
+        if (!player) return "Join the room first.";
+        const recent = (this.posts.get(id) ?? []).filter((at) => now - at < CHAT_WINDOW_MS);
+        if (recent.length >= CHAT_BURST) return CHAT_TOO_FAST;
+        this.posts.set(id, [...recent, now]);
+        if (message.type === "chat") this.log({ kind: "chat", playerId: id, name: player.name, text: message.text }, now);
+        else this.log({ kind: "drawing", playerId: id, name: player.name, drawing: message.drawing }, now);
         break;
       }
       case "answer": {
@@ -191,7 +214,8 @@ export class RoomState {
     return times.length ? Math.min(...times) : null;
   }
 
-  snapshotFor(you: string, now: number): RoomSnapshot {
+  // Pass withLog = false to leave out the chat log, for a player who already has the latest one.
+  snapshotFor(you: string, now: number, withLog = true): RoomSnapshot {
     const game = this.game;
     const revealed = game?.phase === "reveal" || game?.phase === "finished";
     const players: PlayerInfo[] = [...this.players.values()].map((player) => ({
@@ -227,7 +251,7 @@ export class RoomState {
             }
           : null,
       settings: this.settings,
-      events: [...this.events],
+      ...(withLog ? { events: [...this.events] } : {}),
     };
   }
 
@@ -241,6 +265,7 @@ export class RoomState {
     this.nextEventId += 1;
     if (this.events.length > MAX_EVENTS) this.events.splice(0, this.events.length - MAX_EVENTS);
     this.lastEventAt = now;
+    this.version += 1;
   }
 
   private logRename(id: string, from: string, to: string, now: number) {
@@ -257,6 +282,7 @@ export class RoomState {
       if (last.from === to) this.events.pop();
       else this.events[this.events.length - 1] = { ...last, to };
       this.lastEventAt = now;
+      this.version += 1;
       return;
     }
     this.log({ kind: "rename", playerId: id, from, to }, now);

@@ -3,6 +3,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { ChatComposer, DrawingView } from "@/components/ChatComposer";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { CountdownIntro } from "@/components/CountdownIntro";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
@@ -152,10 +153,16 @@ function Notice({ children, icon }: { children: ReactNode; icon?: ReactNode }) {
 }
 
 // A full chat message with a name tag hanging off its top-left corner.
-function Message({ tag, children, className = "" }: { tag: Tag; children: ReactNode; className?: string }) {
+// Pass traced to go over the outline twice, as your own posts in a room are.
+function Message({ tag, children, className = "", traced = false }: {
+  tag: Tag;
+  children: ReactNode;
+  className?: string;
+  traced?: boolean;
+}) {
   return (
     <div className={`message-in relative isolate mt-3 px-3 pb-3 pt-5 ${className}`}>
-      <SketchFrame radius={16} wobble={1.1} strokeWidth={2.6} fill="ruled" draw />
+      <SketchFrame radius={16} wobble={1.1} strokeWidth={2.6} fill="ruled" draw traced={traced} />
       <span className="absolute -top-3 left-3">
         <NameTag label={tag.label} color={tag.color} icon={tag.icon} />
       </span>
@@ -384,13 +391,46 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   // Everyone but the host sees the options grayed out.
   const optionsLocked = !!room && !room.isHost;
 
-  // Keep the newest chat message in view, like a chat log.
-  useEffect(() => {
+  // Whether the log is scrolled down to its newest line. Chat only pulls the log down if so, so scrolling back
+  // to read isn't interrupted; otherwise a "new messages" button appears instead.
+  const atBottomRef = useRef(true);
+  const lastScrollTopRef = useRef(0);
+  const [unseenChat, setUnseenChat] = useState(false);
+  const scrollFeedToBottom = useCallback(() => {
     const feed = feedRef.current;
+    atBottomRef.current = true;
+    setUnseenChat(false);
     if (!feed) return;
     const reduceMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
     feed.scrollTo({ top: feed.scrollHeight, behavior: reduceMotion ? "auto" : "smooth" });
-  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, room?.events.length]);
+  }, []);
+  const handleFeedScroll = () => {
+    const feed = feedRef.current;
+    if (!feed) return;
+    const atBottom = feed.scrollHeight - feed.scrollTop - feed.clientHeight < 40;
+    // Only scrolling up counts as leaving the bottom, so the smooth scroll down to a new line doesn't.
+    if (atBottom) {
+      atBottomRef.current = true;
+      setUnseenChat(false);
+    } else if (feed.scrollTop < lastScrollTopRef.current - 2) {
+      atBottomRef.current = false;
+    }
+    lastScrollTopRef.current = feed.scrollTop;
+  };
+
+  // The game itself (a new round, your result) always scrolls into view: you need it to play.
+  useEffect(() => {
+    scrollFeedToBottom();
+  }, [history.length, currentRoundIndex, gameState, status, errorMessage, isPreparing, roomGame.error, scrollFeedToBottom]);
+
+  // New lines in the chat log follow along only if you're already at the bottom.
+  const lastEvent = room?.events.at(-1);
+  const logKey = room ? `${room.events.length}:${lastEvent?.id ?? 0}` : "";
+  useEffect(() => {
+    if (!logKey) return;
+    if (atBottomRef.current) scrollFeedToBottom();
+    else setUnseenChat(true);
+  }, [logKey, scrollFeedToBottom]);
 
   const canAnswer = view?.phase === "playing" && status === "idle" && !view.locked && spritesReady;
 
@@ -672,8 +712,37 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  // Joins and renames in a room, in the chat log. A join is a chat message with the player's name tag and partner.
+  // A room player's name tag in the log: the name they posted under, with their color and partner as they are now.
+  // Your own tag shows the color you've picked right away, before the room echoes it back.
+  const playerTag = (playerId: string, name: string): Tag => {
+    const player = room?.players.find((candidate) => candidate.id === playerId);
+    return {
+      label: name,
+      color: playerId === room?.you ? profile.color : player?.profile.color,
+      icon: player?.partner ? pokemonIconUrl(player.partner.id) : null,
+    };
+  };
+
+  // What happened in a room, in the chat log: joins, renames, and what players wrote or drew.
   const renderRoomEvent = (event: RoomEvent) => {
+    if (event.kind === "chat" || event.kind === "drawing") {
+      const tag = playerTag(event.playerId, event.name);
+      const mine = event.playerId === room?.you;
+      if (event.kind === "drawing") {
+        return (
+          <Message key={`event-${event.id}`} tag={tag} traced={mine}>
+            <DrawingView drawing={event.drawing} label={`A drawing by ${event.name}`} className="mx-auto max-w-[20rem]" />
+          </Message>
+        );
+      }
+      return (
+        <div key={`event-${event.id}`} className="message-in relative isolate flex items-start gap-2.5 py-2 pl-2.5 pr-3">
+          <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" traced={mine} />
+          <NameTag label={tag.label} color={tag.color} icon={tag.icon} className="mt-px max-w-[40%]" />
+          <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">{event.text}</p>
+        </div>
+      );
+    }
     if (event.kind === "rename") {
       return (
         <Notice key={`event-${event.id}`}>
@@ -1298,19 +1367,53 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         </header>
 
         <div>
-          {/* Top screen: the chat log. Before the first game it only holds the welcome, so it
-              hugs that instead of leaving a gap above it; once rounds start it locks to a fixed
-              height so the answer buttons below don't shift as messages arrive. */}
-          <SketchPanel
-            fill="chrome"
-            className={`flex flex-col p-2.5 ${
-              history.length === 0 && gameState !== "playing" ? "max-h-[23rem] sm:max-h-[26rem]" : "h-[23rem] sm:h-[26rem]"
-            }`}
-          >
-            {renderStatusStrip()}
-            <div ref={feedRef} className="feed-scroll min-h-0 flex-1 overflow-y-auto rounded-[12px] px-2 pb-3 pt-1 sm:px-3">
-              <div className="flex min-h-full flex-col justify-end gap-2.5">{renderFeed()}</div>
+          {/* Top screen: the chat log. Between games it grows with what's in it (at first just the
+              welcome) up to a cap, then scrolls; once rounds start it locks to a fixed height so the
+              answer buttons below don't shift as messages arrive. In a room, the composer sits under it. */}
+          <SketchPanel fill="chrome" className="flex flex-col p-2.5">
+            <div
+              className={`flex min-h-0 flex-col ${
+                history.length === 0 && gameState !== "playing" ? "max-h-[23rem] sm:max-h-[26rem]" : "h-[23rem] sm:h-[26rem]"
+              }`}
+            >
+              {renderStatusStrip()}
+              <div className="relative flex min-h-0 flex-1 flex-col">
+                <div
+                  ref={feedRef}
+                  onScroll={handleFeedScroll}
+                  className="feed-scroll min-h-0 flex-1 overflow-y-auto rounded-[12px] px-2 pb-3 pt-1 sm:px-3"
+                >
+                  <div className="flex min-h-full flex-col justify-end gap-2.5">{renderFeed()}</div>
+                </div>
+                {unseenChat && (
+                  <button
+                    type="button"
+                    onClick={scrollFeedToBottom}
+                    className="message-in absolute bottom-2 left-1/2 isolate flex -translate-x-1/2 items-center gap-1 rounded-[10px] px-3 py-1 text-xs text-ink focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink"
+                  >
+                    <SketchFrame radius={10} wobble={0.7} strokeWidth={2} fill="paper" />
+                    New messages
+                    <SketchIcon name="arrowDown" className="h-3.5 w-3.5" strokeWidth={2.2} />
+                  </button>
+                )}
+              </div>
             </div>
+            {room?.joined && (
+              <div className="px-2 pb-1">
+                <SketchLine className="mb-2.5 h-1.5 text-ink" />
+                <ChatComposer
+                  disabled={!roomGame.connected}
+                  onSendText={(text) => {
+                    roomGame.sendChat(text);
+                    scrollFeedToBottom();
+                  }}
+                  onSendDrawing={(drawing) => {
+                    roomGame.sendDrawing(drawing);
+                    scrollFeedToBottom();
+                  }}
+                />
+              </div>
+            )}
           </SketchPanel>
 
           {renderHinge()}

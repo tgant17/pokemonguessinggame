@@ -3,8 +3,13 @@ import { test } from "node:test";
 import type { GameSettings } from "./engine.ts";
 import { INTRO_COUNTDOWN_MS, MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
 import {
+  CHAT_BURST,
+  CHAT_WINDOW_MS,
+  MAX_CHAT_LENGTH,
   MAX_NAME_LENGTH,
+  clampChat,
   clampName,
+  cleanChat,
   cleanName,
   isRoomCode,
   makeRoomCode,
@@ -13,7 +18,13 @@ import {
   parseClientMessage,
   type ClientMessage,
 } from "./protocol.ts";
-import { MAX_EVENTS, READY_TIMEOUT_MS, RENAME_MERGE_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
+import {
+  MAX_EVENTS,
+  READY_TIMEOUT_MS,
+  RENAME_MERGE_MS,
+  REJOIN_GRACE_MS,
+  RoomState,
+} from "./room.ts";
 
 const mon = (id: number): PokemonSprite => ({
   id,
@@ -361,11 +372,20 @@ test("players can change their name after joining, and everyone sees it", () => 
   assert.equal(parse({ type: "rename", name: 42 }), null);
 });
 
-// The chat log as "Ash joined" / "Ash→Red" lines, with the round each happened in ("lobby" between games).
+// The chat log as "Ash joined" / "Ash→Red" / "Ash: hi" / "Ash drew 2 strokes" lines, with the round each
+// happened in ("lobby" between games).
 const chatLog = (room: RoomState, now = T0) =>
-  (room.snapshotFor("ash", now).events ?? []).map((event) =>
-    `${event.round ?? "lobby"}: ${event.kind === "join" ? `${event.name} joined` : `${event.from}→${event.to}`}`,
-  );
+  (room.snapshotFor("ash", now).events ?? []).map((event) => {
+    const line =
+      event.kind === "join"
+        ? `${event.name} joined`
+        : event.kind === "rename"
+          ? `${event.from}→${event.to}`
+          : event.kind === "chat"
+            ? `${event.name}: ${event.text}`
+            : `${event.name} drew ${event.drawing.length} strokes`;
+    return `${event.round ?? "lobby"}: ${line}`;
+  });
 const join = (room: RoomState, id: string, name: string, now = T0) => {
   room.connect(id);
   return room.handle(id, { type: "join", name, partner: mon(74), profile: { color: null } }, now);
@@ -466,4 +486,82 @@ test("names are at most 10 characters, counted the way people count them", () =>
   assert.equal(cleanName("Ash Ketch m"), "Ash Ketch", "a space left at the cut is trimmed");
   assert.equal(cleanName("   "), null);
   assert.equal(cleanName(42), null);
+});
+
+const say = (room: RoomState, id: string, text: string, now = T0) => room.handle(id, { type: "chat", text }, now);
+
+test("players can post chat lines and drawings to everyone's log", () => {
+  const room = twoPlayerRoom();
+  assert.equal(say(room, "misty", "hi all"), null);
+  assert.equal(room.handle("ash", { type: "drawing", drawing: [[1, 2, 3, 4], [9, 9]] }, T0), null);
+  assert.deepEqual(chatLog(room).slice(2), ["lobby: Misty: hi all", "lobby: Ash drew 2 strokes"]);
+  const drawing = room.snapshotFor("misty", T0).events?.at(-1);
+  assert.deepEqual(drawing?.kind === "drawing" && drawing.drawing, [[1, 2, 3, 4], [9, 9]]);
+
+  // Lines keep the name the player had when they wrote them.
+  room.handle("misty", { type: "rename", name: "Kasumi" }, T0);
+  say(room, "misty", "new name!");
+  assert.deepEqual(chatLog(room).slice(2), [
+    "lobby: Misty: hi all",
+    "lobby: Ash drew 2 strokes",
+    "lobby: Misty→Kasumi",
+    "lobby: Kasumi: new name!",
+  ]);
+
+  // Only players in the room can post.
+  room.connect("gary");
+  assert.equal(say(room, "gary", "smell ya later"), "Join the room first.");
+  assert.equal(chatLog(room).length, 6);
+});
+
+test("chat during a game goes with the round it was sent in", () => {
+  const room = twoPlayerRoom();
+  say(room, "ash", "ready?");
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  say(room, "misty", "easy one", T0 + 100);
+  assert.deepEqual(chatLog(room), ["0: Misty: easy one"], "a new game starts a fresh log");
+});
+
+test("posting too fast is turned away for a few seconds", () => {
+  const room = twoPlayerRoom();
+  for (let n = 0; n < CHAT_BURST; n += 1) assert.equal(say(room, "ash", `spam ${n}`, T0 + n * 100), null);
+  assert.equal(say(room, "ash", "one more", T0 + CHAT_BURST * 100), "Slow down! Give it a few seconds.");
+  assert.equal(say(room, "misty", "not me", T0 + CHAT_BURST * 100), null, "each player has their own limit");
+  assert.equal(say(room, "ash", "back again", T0 + CHAT_WINDOW_MS), null, "older posts stop counting");
+  assert.equal(chatLog(room).filter((line) => line.includes("one more")).length, 0);
+});
+
+test("the log is only resent when it changes", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.snapshotFor("ash", T0, false).events, undefined, "left out on request");
+  assert.equal(room.snapshotFor("ash", T0).events?.length, 2);
+
+  const changes = (act: () => void) => {
+    const before = room.logVersion;
+    act();
+    return room.logVersion !== before;
+  };
+  assert.equal(changes(() => say(room, "ash", "hello")), true);
+  assert.equal(changes(() => room.handle("misty", { type: "rename", name: "Kasumi" }, T0)), true);
+  assert.equal(changes(() => room.handle("misty", { type: "rename", name: "Misty" }, T0)), true, "an undone rename too");
+  assert.equal(changes(() => start(room)), true, "a new game clears it");
+  assert.equal(changes(() => ready(room, "ash", T0)), false);
+  assert.equal(changes(() => ready(room, "misty", T0)), false);
+  assert.equal(changes(() => answer(room, "ash", [1], T0 + 500)), false);
+  assert.equal(changes(() => room.handle("ash", { type: "profile", profile: { color: "#ff0000" } }, T0)), false);
+  assert.equal(changes(() => say(room, "ash", "too much", T0 + 600) && undefined), true);
+});
+
+test("chat lines are tidied up and kept short", () => {
+  const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
+  assert.deepEqual(parse({ type: "chat", text: "  gotta\ncatch   em all  " }), { type: "chat", text: "gotta catch em all" });
+  assert.equal(parse({ type: "chat", text: "   " }), null);
+  assert.equal(parse({ type: "chat", text: 7 }), null);
+  assert.equal(parse({ type: "drawing", drawing: [[1, 2]] })?.type, "drawing");
+  assert.equal(parse({ type: "drawing", drawing: [[1.5, 2]] }), null);
+
+  assert.equal(cleanChat("⚡".repeat(MAX_CHAT_LENGTH + 5)), "⚡".repeat(MAX_CHAT_LENGTH));
+  assert.equal(clampChat("tab\there "), "tab here ", "a tab becomes a space, and spaces at the end stay while typing");
 });

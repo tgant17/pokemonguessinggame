@@ -36,7 +36,7 @@ Multiplayer rooms run on a small Cloudflare Worker (`party/room.ts`). In a secon
 npm run dev:party       # wrangler dev on port 8787, no Cloudflare account needed
 ```
 
-Then use **Create a room** on the home page. In development the site looks for the room server on port 8787 of whatever host served the page, so phones on the same Wi-Fi can join via your computer's IP address (for example http://192.168.1.20:3000/room/ABCD, with `npm run dev -- -H 0.0.0.0`).
+Then pick **Multiplayer** on the home page and use **Create a room**. In development the site looks for the room server on port 8787 of whatever host served the page, so phones on the same Wi-Fi can join via your computer's IP address (for example http://192.168.1.20:3000/room/ABCD, with `npm run dev -- -H 0.0.0.0`).
 
 ## How multiplayer works
 

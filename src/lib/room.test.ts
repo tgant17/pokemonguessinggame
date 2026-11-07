@@ -2,8 +2,18 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { GameSettings } from "./engine.ts";
 import { MODE_CONFIG, type PokemonSprite, type RoundData } from "./game.ts";
-import { isRoomCode, makeRoomCode, normalizeRoomCode, parseClientMessage, type ClientMessage } from "./protocol.ts";
-import { READY_TIMEOUT_MS, RoomState } from "./room.ts";
+import {
+  MAX_NAME_LENGTH,
+  clampName,
+  cleanName,
+  isRoomCode,
+  makeRoomCode,
+  nameLength,
+  normalizeRoomCode,
+  parseClientMessage,
+  type ClientMessage,
+} from "./protocol.ts";
+import { READY_TIMEOUT_MS, REJOIN_GRACE_MS, RoomState } from "./room.ts";
 
 const mon = (id: number): PokemonSprite => ({
   id,
@@ -21,9 +31,9 @@ const T0 = 5_000_000;
 // A room with Ash (host) and Misty connected and joined.
 const twoPlayerRoom = () => {
   const room = new RoomState("PKMN");
-  for (const [id, name] of [["ash", "Ash"], ["misty", "Misty"]]) {
+  for (const [id, name, partner] of [["ash", "Ash", mon(25)], ["misty", "Misty", mon(120)]] as const) {
     room.connect(id);
-    room.handle(id, { type: "join", name }, T0);
+    room.handle(id, { type: "join", name, partner }, T0);
   }
   return room;
 };
@@ -39,6 +49,7 @@ test("the first player to join hosts, and only the host can start", () => {
   const snapshot = room.snapshotFor("misty", T0);
   assert.equal(snapshot.hostId, "ash");
   assert.deepEqual(snapshot.players.map((p) => p.name), ["Ash", "Misty"]);
+  assert.deepEqual(snapshot.players.map((p) => p.partner?.id), [25, 120], "everyone sees each player's partner");
   assert.equal(start(room, "misty"), "Only the host can start a game.");
   assert.equal(start(room), null);
   assert.equal(room.snapshotFor("misty", T0).game?.phase, "waiting");
@@ -48,9 +59,91 @@ test("if the host disconnects the next connected player can start", () => {
   const room = twoPlayerRoom();
   room.disconnect("ash", T0);
   assert.equal(room.snapshotFor("misty", T0).hostId, "misty");
-  assert.equal(start(room, "misty"), null);
-  // Ash keeps their seat in the list while away.
+  // Ash keeps their seat in the list while away...
   assert.equal(room.snapshotFor("misty", T0).players.find((p) => p.id === "ash")?.connected, false);
+  assert.equal(start(room, "misty"), null);
+  // ...until a new game starts without them. Misty is now the host even if Ash comes back.
+  assert.deepEqual(room.snapshotFor("misty", T0).players.map((p) => p.name), ["Misty"]);
+  room.connect("ash");
+  assert.equal(room.snapshotFor("misty", T0).hostId, "misty");
+});
+
+test("the host can hand hosting to another connected player", () => {
+  const room = twoPlayerRoom();
+  assert.equal(room.handle("misty", { type: "makeHost", playerId: "misty" }, T0), "Only the host can hand over hosting.");
+  assert.equal(room.handle("ash", { type: "makeHost", playerId: "gary" }, T0), "That player isn't in the room.");
+  assert.equal(room.handle("ash", { type: "makeHost", playerId: "misty" }, T0), null);
+  assert.equal(room.snapshotFor("ash", T0).hostId, "misty");
+  assert.equal(start(room, "ash"), "Only the host can start a game.");
+  assert.equal(start(room, "misty"), null);
+});
+
+test("a round ends early once everyone still connected has answered", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [1], T0 + 500);
+  assert.equal(room.snapshotFor("ash", T0 + 500).game?.phase, "playing");
+  room.disconnect("misty", T0 + 1000);
+  assert.equal(room.snapshotFor("ash", T0 + 1000).game?.phase, "playing", "Misty might just be reloading");
+  assert.equal(room.nextWakeAt(), T0 + 1000 + REJOIN_GRACE_MS);
+  room.advance(T0 + 1000 + REJOIN_GRACE_MS);
+  const snap = room.snapshotFor("ash", T0 + 4000);
+  assert.equal(snap.game?.phase, "reveal", "no waiting out the clock for Misty");
+  assert.equal(snap.players.find((p) => p.id === "misty")?.lastResult?.outcome, "timeout");
+  assert.equal(snap.game?.frozenSecondsLeft, 4);
+
+  // The same applies if Misty had already left before answering.
+  const early = twoPlayerRoom();
+  start(early);
+  early.disconnect("misty", T0);
+  ready(early, "ash", T0 + REJOIN_GRACE_MS);
+  assert.equal(early.snapshotFor("ash", T0 + REJOIN_GRACE_MS).game?.phase, "playing");
+  answer(early, "ash", [1], T0 + REJOIN_GRACE_MS + 200);
+  assert.equal(early.snapshotFor("ash", T0 + REJOIN_GRACE_MS + 200).game?.phase, "reveal");
+});
+
+test("refreshing the page doesn't end the round for you", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0);
+  ready(room, "misty", T0);
+  answer(room, "ash", [1], T0 + 500);
+  // Misty reloads: her connection drops and comes back a moment later.
+  room.disconnect("misty", T0 + 1000);
+  assert.equal(room.snapshotFor("ash", T0 + 1000).game?.phase, "playing");
+  room.connect("misty");
+  room.advance(T0 + 5000);
+  assert.equal(room.snapshotFor("misty", T0 + 5000).game?.phase, "playing", "still Misty's turn to answer");
+  answer(room, "misty", [1], T0 + 5200);
+  assert.equal(room.snapshotFor("misty", T0 + 5200).game?.myAnswer?.outcome, "correct");
+});
+
+test("a refresh while a round is loading doesn't start the clock without you", () => {
+  const room = twoPlayerRoom();
+  start(room);
+  ready(room, "ash", T0 + 100);
+  room.disconnect("misty", T0 + 200);
+  assert.equal(room.snapshotFor("ash", T0 + 200).game?.phase, "waiting");
+  room.connect("misty");
+  ready(room, "misty", T0 + 900);
+  assert.equal(room.snapshotFor("ash", T0 + 900).game?.phase, "playing");
+});
+
+test("a full room makes space by dropping someone who has left", () => {
+  const room = new RoomState("PKMN");
+  for (let i = 0; i < 12; i += 1) {
+    room.connect(`p${i}`);
+    room.handle(`p${i}`, { type: "join", name: `P${i}`, partner: null }, T0);
+  }
+  room.connect("late");
+  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null }, T0), "This room is full (12 players).");
+  room.disconnect("p5", T0);
+  assert.equal(room.handle("late", { type: "join", name: "Late", partner: null }, T0), null);
+  const names = room.snapshotFor("late", T0).players.map((p) => p.name);
+  assert.equal(names.length, 12);
+  assert.ok(!names.includes("P5") && names.includes("Late"));
 });
 
 test("a round's clock starts when everyone's sprites are ready, or after a timeout", () => {
@@ -126,7 +219,7 @@ test("someone joining mid-game watches until the next game", () => {
   const room = twoPlayerRoom();
   start(room);
   room.connect("brock");
-  room.handle("brock", { type: "join", name: "Brock" }, T0);
+  room.handle("brock", { type: "join", name: "Brock", partner: null }, T0);
   const watching = room.snapshotFor("brock", T0);
   assert.equal(watching.game?.inGame, false);
   ready(room, "ash", T0);
@@ -152,10 +245,20 @@ test("room codes", () => {
 
 test("client messages are validated", () => {
   const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
-  assert.deepEqual(parse({ type: "join", name: "  Ash \n Ketchum  " }), { type: "join", name: "Ash Ketchum" });
+  assert.deepEqual(parse({ type: "join", name: "  Misty \n Wa  ", partner: mon(120) }), {
+    type: "join",
+    name: "Misty Wa",
+    partner: mon(120),
+  });
   assert.equal(parse({ type: "join", name: "   " }), null);
-  assert.equal(parse({ type: "join", name: "x".repeat(50) })?.type, "join");
-  assert.equal((parse({ type: "join", name: "x".repeat(50) }) as { name: string }).name.length, 20);
+  assert.equal((parse({ type: "join", name: "x".repeat(50) }) as { name: string }).name.length, 10, "names are cut to 10");
+  assert.deepEqual(parse({ type: "join", name: "Ash" }), { type: "join", name: "Ash", partner: null }, "partner is optional");
+  assert.equal(
+    parse({ type: "join", name: "Ash", partner: { ...mon(25), spriteUrl: "https://evil.example/25.png" } }),
+    null,
+    "a partner must be a valid sprite from a known host",
+  );
+  assert.equal(parse({ type: "join", name: "Ash", partner: "pikachu" }), null);
 
   const good: ClientMessage = { type: "start", settings, rounds: makeRounds(5) };
   assert.deepEqual(parse(good), good);
@@ -176,6 +279,26 @@ test("client messages are validated", () => {
     pickedIds: [3],
   });
   assert.equal(parse({ type: "answer", gameId: 1, roundIndex: 0, pickedIds: ["3"] }), null);
+  assert.deepEqual(parse({ type: "makeHost", playerId: "misty" }), { type: "makeHost", playerId: "misty" });
+  assert.equal(parse({ type: "makeHost", playerId: 7 }), null);
   assert.equal(parse({ type: "nope" }), null);
   assert.equal(parseClientMessage("{not json"), null);
+});
+
+test("names are at most 10 characters, counted the way people count them", () => {
+  assert.equal(MAX_NAME_LENGTH, 10);
+  assert.equal(clampName("Ash Ketchum of Pallet"), "Ash Ketchu");
+  assert.equal(clampName("Mi\tsty\n"), "Misty", "tabs and newlines are dropped while typing");
+  // Emoji are one character each and are never split into half a surrogate pair.
+  assert.equal(nameLength("⚡⚡⚡"), 3);
+  const clamped = clampName("Pika⚡⚡⚡⚡⚡⚡⚡");
+  assert.equal(clamped, "Pika⚡⚡⚡⚡⚡⚡");
+  assert.equal(nameLength(clamped), 10);
+  assert.ok(!/[\uD800-\uDBFF]$/.test(clampName("abcdefghi🔥🔥")));
+
+  assert.equal(cleanName("  Brock  "), "Brock");
+  assert.equal(cleanName("Team   Rocket"), "Team Rocke");
+  assert.equal(cleanName("Ash Ketch m"), "Ash Ketch", "a space left at the cut is trimmed");
+  assert.equal(cleanName("   "), null);
+  assert.equal(cleanName(42), null);
 });

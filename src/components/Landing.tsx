@@ -34,7 +34,7 @@ export default function Landing() {
           <div className="min-w-0 flex-1 text-paper">
             <p className="text-xs uppercase tracking-[0.25em] text-paper/70">Single player</p>
             <p className="font-hand text-3xl font-bold leading-tight">Play on this device</p>
-            <p className="mt-1 text-sm text-paper/75">Go solo, or pass the device between teams.</p>
+            <p className="mt-1 text-sm text-paper/75">Race the clock on your own and chase a high score.</p>
           </div>
           <SketchIcon name="send" className="h-8 w-8 text-paper" strokeWidth={2.6} />
         </Link>

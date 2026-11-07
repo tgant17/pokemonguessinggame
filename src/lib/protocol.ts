@@ -4,7 +4,7 @@
 import type { GamePhase, GameSettings, PlayerAnswer } from "./engine.ts";
 import { MODE_CONFIG, ROUND_OPTIONS, type GameMode, type PokemonSprite, type RoundData } from "./game.ts";
 
-export const MAX_NAME_LENGTH = 20;
+export const MAX_NAME_LENGTH = 10;
 export const MAX_PLAYERS = 12;
 export const ROOM_CODE_LENGTH = 4;
 // Letters only, minus ones that are easy to misread aloud or on screen (I, L, O).
@@ -21,6 +21,8 @@ export const isRoomCode = (code: string) =>
 export type PlayerInfo = {
   id: string;
   name: string;
+  // The Pokémon this player picked to play alongside them (null for clients that predate partners).
+  partner: PokemonSprite | null;
   connected: boolean;
   score: number;
   // True once this player has locked in an answer for the current round.
@@ -57,10 +59,11 @@ export type RoomSnapshot = {
 export type ServerMessage = RoomSnapshot | { type: "error"; message: string };
 
 export type ClientMessage =
-  | { type: "join"; name: string }
+  | { type: "join"; name: string; partner: PokemonSprite | null }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
-  | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] };
+  | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] }
+  | { type: "makeHost"; playerId: string };
 
 // --- Validation of messages from browsers. The server trusts nothing it receives. ---
 
@@ -69,10 +72,19 @@ const isObject = (value: unknown): value is Record<string, unknown> =>
 
 const isIndex = (value: unknown): value is number => Number.isInteger(value) && (value as number) >= 0;
 
+// Names are counted by code point, so an emoji counts as one character and is never cut in half.
+export const nameLength = (value: string) => Array.from(value).length;
+
+const stripControls = (value: string) => value.replace(/\p{Cc}/gu, "");
+const clampLength = (value: string) => Array.from(value).slice(0, MAX_NAME_LENGTH).join("");
+
+// Applied while typing: drops control characters (tabs, newlines) and stops at the limit.
+export const clampName = (value: string) => clampLength(stripControls(value));
+
+// The name as everyone sees it: single spaces, none at either end, at most MAX_NAME_LENGTH characters.
 export const cleanName = (value: unknown): string | null => {
   if (typeof value !== "string") return null;
-  // Collapse whitespace and drop control characters.
-  const name = value.replace(/[\u0000-\u001f\u007f]/g, "").replace(/\s+/g, " ").trim().slice(0, MAX_NAME_LENGTH);
+  const name = clampLength(stripControls(value).replace(/\s+/g, " ").trim()).trim();
   return name.length ? name : null;
 };
 
@@ -127,7 +139,10 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
   switch (data.type) {
     case "join": {
       const name = cleanName(data.name);
-      return name ? { type: "join", name } : null;
+      // A partner is optional so pages loaded before partners existed can still join, but must be valid if sent.
+      const partner = data.partner == null ? null : parseSprite(data.partner);
+      if (!name || (data.partner != null && !partner)) return null;
+      return { type: "join", name, partner };
     }
     case "start": {
       const settings = parseSettings(data.settings);
@@ -144,6 +159,10 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
       if (!isIndex(data.gameId) || !isIndex(data.roundIndex) || !Array.isArray(data.pickedIds)) return null;
       if (data.pickedIds.length > 8 || !data.pickedIds.every(isIndex)) return null;
       return { type: "answer", gameId: data.gameId, roundIndex: data.roundIndex, pickedIds: data.pickedIds };
+    case "makeHost":
+      return typeof data.playerId === "string" && data.playerId.length > 0 && data.playerId.length <= 100
+        ? { type: "makeHost", playerId: data.playerId }
+        : null;
     default:
       return null;
   }

@@ -27,6 +27,9 @@ import { useLocalGame, type GameController, type RoundResultEvent } from "@/hook
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
 import { MAX_NAME_LENGTH, makeRoomCode, normalizeRoomCode, isRoomCode } from "@/lib/protocol";
 import { useRouter } from "next/navigation";
+import { ProfileCard } from "@/components/ProfileCard";
+import { useProfile } from "@/hooks/useProfile";
+import { pokemonIconUrl, type Profile } from "@/lib/profile";
 
 
 
@@ -38,8 +41,14 @@ type TeamState = {
 };
 
 
-// Who posted a message in the chat log: a team, or the solo player.
-type Tag = { label: string; color?: string };
+// Who posted a message in the chat log: a team, or a player (with their color and partner Pokémon).
+type Tag = { label: string; color?: string | null; icon?: string | null };
+
+const profileTag = (label: string, profile: Profile): Tag => ({
+  label,
+  color: profile.color,
+  icon: profile.pokemonId ? pokemonIconUrl(profile.pokemonId) : null,
+});
 
 // One finished round, kept in the chat log on the top screen.
 type RoundRecord = {
@@ -82,7 +91,6 @@ const TEAM_PRESETS: TeamState[] = [
   { name: "Green", color: "#4ade80", score: 0, rounds: 0 },
 ];
 
-const SOLO_TAG: Tag = { label: "You" };
 const HOST_TAG: Tag = { label: "Host" };
 
 
@@ -134,7 +142,7 @@ function Message({ tag, children, className = "" }: { tag: Tag; children: ReactN
     <div className={`message-in relative isolate mt-3 px-3 pb-3 pt-5 ${className}`}>
       <SketchFrame radius={16} wobble={1.1} strokeWidth={2.6} fill="ruled" draw />
       <span className="absolute -top-3 left-3">
-        <NameTag label={tag.label} color={tag.color} />
+        <NameTag label={tag.label} color={tag.color} icon={tag.icon} />
       </span>
       {children}
     </div>
@@ -159,11 +167,12 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const [showTeams, setShowTeams] = useState(false);
   const [history, setHistory] = useState<RoundRecord[]>([]);
   const feedRef = useRef<HTMLDivElement>(null);
+  const { profile, setProfile } = useProfile();
 
   const activeTeamData = teams.find((team) => team.name === activeTeam) ?? TEAM_PRESETS[0];
   const teamTag = useMemo<Tag>(
-    () => (showTeams ? { label: activeTeamData.name, color: activeTeamData.color } : SOLO_TAG),
-    [showTeams, activeTeamData.name, activeTeamData.color],
+    () => (showTeams ? { label: activeTeamData.name, color: activeTeamData.color } : profileTag("You", profile)),
+    [showTeams, activeTeamData.name, activeTeamData.color, profile],
   );
   // The round-result handler reads the tag through a ref, since in a room the tag (your name) comes from
   // the room hook, which itself needs the handler.
@@ -199,9 +208,20 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
   const game: GameController = inRoom ? roomGame : localGame;
   const { view } = game;
   const currentTag = useMemo<Tag>(
-    () => (inRoom ? { label: room?.me?.name ?? "You" } : teamTag),
-    [inRoom, room?.me?.name, teamTag],
+    () => (inRoom ? profileTag(room?.me?.name ?? "You", profile) : teamTag),
+    [inRoom, room?.me?.name, profile, teamTag],
   );
+
+  // Keep the room's copy of your color and partner Pokémon in step with what you pick here.
+  const { updateProfile } = roomGame;
+  const roomProfile = room?.me?.profile;
+  useEffect(() => {
+    if (!roomProfile || !profile.color) return;
+    if (roomProfile.color === profile.color && roomProfile.pokemonId === profile.pokemonId) return;
+    // Dragging across the wheel changes the color many times a second; send only where it settles.
+    const timer = setTimeout(() => updateProfile(profile), 150);
+    return () => clearTimeout(timer);
+  }, [roomProfile, profile, updateProfile]);
   useEffect(() => {
     tagRef.current = currentTag;
   }, [currentTag]);
@@ -535,7 +555,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     return (
       <div key={`record-${record.round}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
         <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
-        <NameTag label={record.tag.label} color={record.tag.color} />
+        <NameTag label={record.tag.label} color={record.tag.color} icon={record.tag.icon} className="max-w-[35%]" />
         <div className="flex shrink-0">
           {record.answers.map((answer, index) => (
             <span key={answer.id} className={`relative h-9 w-9 ${index > 0 ? "-ml-4" : ""}`}>
@@ -938,7 +958,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           <>
             Join room {roomCode} <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
           </>,
-          () => cleaned && roomGame.join(cleaned),
+          () => cleaned && roomGame.join(cleaned, profile),
           !cleaned || !roomGame.connected,
         )}
       </form>
@@ -997,11 +1017,14 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               >
                 <SketchFrame radius={12} wobble={0.8} strokeWidth={isYou ? 2.6 : 2} fill="paper" traced={isYou} />
                 <span className="w-5 text-center text-sm tabular-nums text-ink-soft">{index + 1}</span>
-                <span className="min-w-0 flex-1 truncate text-base">
-                  {player.name}
-                  {isYou && <span className="text-ink-soft"> (you)</span>}
-                  {player.id === room?.hostId && <span className="ml-1 text-xs text-ink-soft">host</span>}
-                  {!player.connected && <span className="ml-1 text-xs">away</span>}
+                <span className={`flex min-w-0 flex-1 items-center gap-1.5 text-base ${player.connected ? "" : "opacity-50"}`}>
+                  {/* Your own tag shows what you've picked right away, before the room echoes it back. */}
+                  <NameTag {...profileTag(player.name, isYou ? profile : player.profile)} />
+                  <span className="shrink-0 whitespace-nowrap text-xs text-ink-soft">
+                    {isYou && "you"}
+                    {player.id === room?.hostId && `${isYou ? " · " : ""}host`}
+                    {!player.connected && " · away"}
+                  </span>
                 </span>
                 {view?.phase === "playing" && player.answered && (
                   <span className="text-xs text-ink-soft">answered</span>
@@ -1069,6 +1092,15 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     </SketchPanel>
   );
 
+  const renderProfileCard = () => (
+    <ProfileCard
+      name={inRoom ? (room?.me?.name ?? (nameDraft.trim() || roomGame.savedName || "You")) : "You"}
+      profile={profile}
+      onChange={setProfile}
+      pokemonNames={pokemonNames}
+    />
+  );
+
   const bottomPrompt = () => {
     if (gameState === "loading") return "Loading…";
     if (room && !room.joined) return "Pick a name";
@@ -1112,7 +1144,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           {/* Bottom screen: where you answer. */}
           <SketchPanel fill="ruled" className="p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between gap-3">
-              <NameTag label={currentTag.label} color={currentTag.color} size="md" />
+              <NameTag label={currentTag.label} color={currentTag.color} icon={currentTag.icon} size="md" className="max-w-[60%]" />
               <p className="text-right text-sm text-ink-soft">{bottomPrompt()}</p>
             </div>
             {gameState === "loading" ? (
@@ -1131,6 +1163,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             )}
           </SketchPanel>
         </div>
+
+        {renderProfileCard()}
 
         {inRoom ? (
           renderPlayersPanel()

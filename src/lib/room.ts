@@ -3,11 +3,12 @@
 
 import { createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
 import { MAX_PLAYERS, type ClientMessage, type PlayerInfo, type RoomSnapshot } from "./protocol.ts";
+import type { Profile } from "./profile.ts";
 
 // How long a new round waits for everyone's sprites to load before starting the clock anyway.
 export const READY_TIMEOUT_MS = 4000;
 
-type Player = { id: string; name: string };
+type Player = { id: string; name: string; profile: Profile };
 
 export class RoomState {
   readonly code: string;
@@ -55,8 +56,14 @@ export class RoomState {
       case "join": {
         const existing = this.players.get(id);
         if (!existing && this.players.size >= MAX_PLAYERS) return `This room is full (${MAX_PLAYERS} players).`;
-        this.players.set(id, { id, name: message.name });
+        this.players.set(id, { id, name: message.name, profile: message.profile });
         if (!this.hostId) this.hostId = id;
+        break;
+      }
+      case "profile": {
+        const player = this.players.get(id);
+        if (!player) return "Join the room first.";
+        this.players.set(id, { ...player, profile: message.profile });
         break;
       }
       case "start": {
@@ -113,6 +120,7 @@ export class RoomState {
     const players: PlayerInfo[] = [...this.players.values()].map((player) => ({
       id: player.id,
       name: player.name,
+      profile: player.profile,
       connected: this.isConnected(player.id),
       score: game?.scores[player.id] ?? 0,
       answered: !!game?.answers[player.id],

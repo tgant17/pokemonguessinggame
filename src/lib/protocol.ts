@@ -3,6 +3,7 @@
 
 import type { GamePhase, GameSettings, PlayerAnswer } from "./engine.ts";
 import { MODE_CONFIG, ROUND_OPTIONS, type GameMode, type PokemonSprite, type RoundData } from "./game.ts";
+import { cleanProfile, type Profile } from "./profile.ts";
 
 export const MAX_NAME_LENGTH = 20;
 export const MAX_PLAYERS = 12;
@@ -21,6 +22,8 @@ export const isRoomCode = (code: string) =>
 export type PlayerInfo = {
   id: string;
   name: string;
+  // The color and partner Pokémon this player picked, shown wherever their name appears.
+  profile: Profile;
   connected: boolean;
   score: number;
   // True once this player has locked in an answer for the current round.
@@ -57,7 +60,8 @@ export type RoomSnapshot = {
 export type ServerMessage = RoomSnapshot | { type: "error"; message: string };
 
 export type ClientMessage =
-  | { type: "join"; name: string }
+  | { type: "join"; name: string; profile: Profile }
+  | { type: "profile"; profile: Profile }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
   | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] };
@@ -127,8 +131,10 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
   switch (data.type) {
     case "join": {
       const name = cleanName(data.name);
-      return name ? { type: "join", name } : null;
+      return name ? { type: "join", name, profile: cleanProfile(data.profile) } : null;
     }
+    case "profile":
+      return { type: "profile", profile: cleanProfile(data.profile) };
     case "start": {
       const settings = parseSettings(data.settings);
       if (!settings || !Array.isArray(data.rounds) || data.rounds.length !== settings.totalRounds) return null;

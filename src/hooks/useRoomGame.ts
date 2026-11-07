@@ -4,6 +4,7 @@ import usePartySocket from "partysocket/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameSettings } from "@/lib/engine";
 import type { RoundData } from "@/lib/game";
+import type { Profile } from "@/lib/profile";
 import type { ClientMessage, PlayerInfo, RoomSnapshot, ServerMessage } from "@/lib/protocol";
 import type { GameController, GameView, RoundResultEvent } from "./useLocalGame";
 
@@ -55,7 +56,8 @@ export type RoomController = GameController & {
   connected: boolean;
   error: string | null;
   savedName: string;
-  join: (name: string) => void;
+  join: (name: string, profile: Profile) => void;
+  updateProfile: (profile: Profile) => void;
   startGame: (settings: GameSettings, rounds: RoundData[]) => void;
 };
 
@@ -182,14 +184,16 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
   );
 
   const join = useCallback(
-    (name: string) => {
+    (name: string, profile: Profile) => {
       setError(null);
       writeStorage(PLAYER_NAME_KEY, name);
       setSavedName(name);
-      send({ type: "join", name });
+      send({ type: "join", name, profile });
     },
     [send],
   );
+
+  const updateProfile = useCallback((profile: Profile) => send({ type: "profile", profile }), [send]);
 
   const startGame = useCallback(
     (settings: GameSettings, rounds: RoundData[]) => {
@@ -199,5 +203,5 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     [send],
   );
 
-  return { view, startClock, submit, room, connected, error, savedName, join, startGame };
+  return { view, startClock, submit, room, connected, error, savedName, join, updateProfile, startGame };
 }

@@ -23,7 +23,7 @@ const twoPlayerRoom = () => {
   const room = new RoomState("PKMN");
   for (const [id, name] of [["ash", "Ash"], ["misty", "Misty"]]) {
     room.connect(id);
-    room.handle(id, { type: "join", name }, T0);
+    room.handle(id, { type: "join", name, profile: { color: null, pokemonId: null } }, T0);
   }
   return room;
 };
@@ -126,7 +126,7 @@ test("someone joining mid-game watches until the next game", () => {
   const room = twoPlayerRoom();
   start(room);
   room.connect("brock");
-  room.handle("brock", { type: "join", name: "Brock" }, T0);
+  room.handle("brock", { type: "join", name: "Brock", profile: { color: null, pokemonId: null } }, T0);
   const watching = room.snapshotFor("brock", T0);
   assert.equal(watching.game?.inGame, false);
   ready(room, "ash", T0);
@@ -152,7 +152,11 @@ test("room codes", () => {
 
 test("client messages are validated", () => {
   const parse = (value: unknown) => parseClientMessage(JSON.stringify(value));
-  assert.deepEqual(parse({ type: "join", name: "  Ash \n Ketchum  " }), { type: "join", name: "Ash Ketchum" });
+  assert.deepEqual(parse({ type: "join", name: "  Ash \n Ketchum  " }), {
+    type: "join",
+    name: "Ash Ketchum",
+    profile: { color: null, pokemonId: null },
+  });
   assert.equal(parse({ type: "join", name: "   " }), null);
   assert.equal(parse({ type: "join", name: "x".repeat(50) })?.type, "join");
   assert.equal((parse({ type: "join", name: "x".repeat(50) }) as { name: string }).name.length, 20);
@@ -178,4 +182,24 @@ test("client messages are validated", () => {
   assert.equal(parse({ type: "answer", gameId: 1, roundIndex: 0, pickedIds: ["3"] }), null);
   assert.equal(parse({ type: "nope" }), null);
   assert.equal(parseClientMessage("{not json"), null);
+});
+
+test("players can set a color and partner Pokémon, and everyone sees them", () => {
+  const room = twoPlayerRoom();
+  room.handle("ash", { type: "profile", profile: { color: "#ff8800", pokemonId: 25 } }, T0);
+  const seenByMisty = room.snapshotFor("misty", T0).players.find((p) => p.id === "ash");
+  assert.deepEqual(seenByMisty?.profile, { color: "#ff8800", pokemonId: 25 });
+
+  room.connect("gary");
+  assert.equal(room.handle("gary", { type: "profile", profile: { color: "#000000", pokemonId: 1 } }, T0), "Join the room first.");
+
+  // Bad values from a browser are dropped rather than trusted.
+  assert.deepEqual(parseClientMessage(JSON.stringify({ type: "profile", profile: { color: "url(x)", pokemonId: 9999 } })), {
+    type: "profile",
+    profile: { color: null, pokemonId: null },
+  });
+  assert.deepEqual(
+    (parseClientMessage(JSON.stringify({ type: "join", name: "Ash", profile: { color: "#ABCDEF", pokemonId: 4 } })) as ClientMessage & { type: "join" }).profile,
+    { color: "#abcdef", pokemonId: 4 },
+  );
 });

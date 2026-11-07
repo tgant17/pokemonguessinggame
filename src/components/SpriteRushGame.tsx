@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
 import {
@@ -21,7 +21,7 @@ import {
   buildRounds,
   formatName,
   joinNames,
-  optionIconUrl,
+  pokemonIconUrl,
   showsOptionIcons,
   type GameMode,
   type PokemonSprite,
@@ -44,8 +44,24 @@ type Tag = { label: string; color?: string | null; icon?: string | null };
 const profileTag = (label: string, profile: Profile, partner?: PokemonSprite | null): Tag => ({
   label,
   color: profile.color,
-  icon: partner?.spriteUrl ?? null,
+  icon: partner ? pokemonIconUrl(partner.id) : null,
 });
+
+// A player's partner as a pixel sprite, like the option icons in Hard and Legendary. Front sprites have wide
+// transparent margins, so callers pull them in with negative margins to keep the Pokémon a readable size.
+function PartnerIcon({ partner, className = "" }: { partner: PokemonSprite; className?: string }) {
+  return (
+    <Image
+      src={pokemonIconUrl(partner.id)}
+      alt=""
+      width={44}
+      height={44}
+      unoptimized
+      className={`h-11 w-11 shrink-0 ${className}`}
+      style={{ imageRendering: "pixelated" }}
+    />
+  );
+}
 
 // One finished round, kept in the chat log on the top screen.
 type RoundRecord = {
@@ -601,7 +617,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  // Joins and renames in a room, as lines in the chat log. Each new player also calls out their partner.
+  // Joins and renames in a room, in the chat log. A join is a chat message with the player's name tag and partner.
   const renderRoomEvent = (event: RoomEvent) => {
     if (event.kind === "rename") {
       return (
@@ -616,24 +632,15 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         ? profile.color
         : room?.players.find((player) => player.id === event.playerId)?.profile.color;
     return (
-      <Fragment key={`event-${event.id}`}>
-        <Notice>
+      <div key={`event-${event.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
+        <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
+        <NameTag label={event.name} color={color} />
+        {event.partner && <PartnerIcon partner={event.partner} className="-mx-1 -my-1.5" />}
+        <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
           {/* Someone joining mid-game watches until the next one. */}
-          <span className="text-ink">{event.name}</span> joined{event.round !== null && " to watch"}
-        </Notice>
-        {event.partner && (
-          <div className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
-            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
-            <NameTag label={event.name} color={color} />
-            <span className="relative h-9 w-9 shrink-0">
-              <Image src={event.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
-            </span>
-            <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
-              I choose you, {formatName(event.partner.name)}!
-            </p>
-          </div>
-        )}
-      </Fragment>
+          {event.round === null ? "joined the room" : "joined to watch"}
+        </p>
+      </div>
     );
   };
 
@@ -785,7 +792,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 // reserved; at the halfway mark it fades and grows in instead of popping in and shoving the name over.
                 // Front sprites have wide transparent margins, so the negative margin keeps the button compact.
                 <Image
-                  src={optionIconUrl(option.id)}
+                  src={pokemonIconUrl(option.id)}
                   alt=""
                   width={40}
                   height={40}
@@ -1134,10 +1141,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
               >
                 <SketchFrame radius={12} wobble={0.8} strokeWidth={isYou ? 2.6 : 2} fill="paper" traced={isYou} />
                 <span className="w-5 text-center text-sm tabular-nums text-ink-soft">{index + 1}</span>
-                <span className={`relative h-8 w-8 shrink-0 ${player.connected ? "" : "opacity-40"}`}>
-                  {player.partner && (
-                    <Image src={player.partner.spriteUrl} alt="" fill sizes="32px" className="object-contain" />
-                  )}
+                <span className={`-mx-1 -my-1.5 h-11 w-11 shrink-0 ${player.connected ? "" : "opacity-40"}`}>
+                  {player.partner && <PartnerIcon partner={player.partner} />}
                 </span>
                 <span className={`flex min-w-0 flex-1 items-center gap-1.5 text-base ${player.connected ? "" : "opacity-50"}`}>
                   {/* Your own tag shows your name and color right away, before the room echoes them back. */}

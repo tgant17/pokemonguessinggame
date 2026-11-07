@@ -413,7 +413,7 @@ export function useBoil(active: boolean, interval = 180) {
 type NameTagProps = {
   label: string;
   color?: string | null;
-  // A small Pokémon sprite drawn on the left of the tag.
+  // A small pixel sprite of a Pokémon (see pokemonIconUrl), drawn on the left of the tag.
   icon?: string | null;
   className?: string;
   size?: "sm" | "md";
@@ -423,12 +423,14 @@ type NameTagProps = {
 
 /** A colored name tag: a team's color, or a player's own color and partner Pokémon. */
 export function NameTag({ label, color, icon, className = "", size = "sm", children }: NameTagProps) {
-  const iconSize = size === "md" ? 30 : 26;
+  // Pixel sprites leave a wide empty border around the Pokémon, so the icon is drawn taller than the tag and
+  // spills past it; the negative margins keep that empty border from padding out the tag.
+  const iconSize = size === "md" ? 40 : 36;
   return (
     <span
       className={`relative isolate inline-flex max-w-full shrink-0 items-center font-pixel leading-none text-ink ${
         size === "md" ? "h-7 px-3 text-base" : "h-6 px-2.5 text-sm"
-      } ${icon ? (size === "md" ? "pl-1" : "pl-0.5") : ""} ${className}`}
+      } ${icon ? "pl-0" : ""} ${className}`}
     >
       <SketchFrame radius={7} wobble={0.6} strokeWidth={2} fill={color ?? "paper"} />
       {icon && (
@@ -438,7 +440,7 @@ export function NameTag({ label, color, icon, className = "", size = "sm", child
           alt=""
           width={iconSize}
           height={iconSize}
-          className="-my-2 mr-0.5 shrink-0"
+          className="-my-3 -ml-1 -mr-1 shrink-0"
           style={{ width: iconSize, height: iconSize, imageRendering: "pixelated" }}
         />
       )}

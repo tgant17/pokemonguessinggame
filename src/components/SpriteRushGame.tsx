@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { SectionLabel, choiceButtonClass } from "@/components/controls";
 import { JoinRoomForm } from "@/components/JoinRoomForm";
 import {
@@ -601,7 +601,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     );
   };
 
-  // Joins and renames in a room, as lines in the chat log. Each new player also calls out their partner.
+  // Joins and renames in a room, in the chat log. A join is a chat message with the player's name tag and partner.
   const renderRoomEvent = (event: RoomEvent) => {
     if (event.kind === "rename") {
       return (
@@ -616,24 +616,19 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
         ? profile.color
         : room?.players.find((player) => player.id === event.playerId)?.profile.color;
     return (
-      <Fragment key={`event-${event.id}`}>
-        <Notice>
-          {/* Someone joining mid-game watches until the next one. */}
-          <span className="text-ink">{event.name}</span> joined{event.round !== null && " to watch"}
-        </Notice>
+      <div key={`event-${event.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
+        <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
+        <NameTag label={event.name} color={color} />
         {event.partner && (
-          <div className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
-            <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />
-            <NameTag label={event.name} color={color} />
-            <span className="relative h-9 w-9 shrink-0">
-              <Image src={event.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
-            </span>
-            <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
-              I choose you, {formatName(event.partner.name)}!
-            </p>
-          </div>
+          <span className="relative h-9 w-9 shrink-0">
+            <Image src={event.partner.spriteUrl} alt="" fill sizes="40px" className="object-contain" />
+          </span>
         )}
-      </Fragment>
+        <p className="min-w-0 flex-1 break-words font-hand text-xl font-bold leading-tight">
+          {/* Someone joining mid-game watches until the next one. */}
+          {event.round === null ? "joined the room" : "joined to watch"}
+        </p>
+      </div>
     );
   };
 

@@ -26,17 +26,21 @@ export default function Landing() {
           <p className="mt-3 font-hand text-2xl font-bold leading-tight">How do you want to play?</p>
         </header>
 
+        {/* Drawn as a paper panel like the multiplayer box, so the two choices look like equals.
+            The whole card stays one link for a big tap target; the inner "button" is just a span. */}
         <Link
           href="/play"
-          className={`relative isolate flex items-center gap-4 rounded-[18px] p-5 transition-transform active:translate-y-px sm:p-6 ${focusRing}`}
+          className={`group relative isolate block rounded-[18px] p-5 sm:p-6 ${focusRing}`}
         >
-          <SketchFrame radius={18} wobble={1.5} strokeWidth={3} fill="ink" draw />
-          <div className="min-w-0 flex-1 text-paper">
-            <p className="text-xs uppercase tracking-[0.25em] text-paper/70">Single player</p>
-            <p className="font-hand text-3xl font-bold leading-tight">Play on this device</p>
-            <p className="mt-1 text-sm text-paper/75">Race the clock on your own and chase a high score.</p>
-          </div>
-          <SketchIcon name="send" className="h-8 w-8 text-paper" strokeWidth={2.6} />
+          <SketchFrame radius={18} wobble={1.5} strokeWidth={3} fill="paper" draw />
+          <p className="text-xs uppercase tracking-[0.25em] text-ink-soft">Single player</p>
+          <p className="font-hand text-3xl font-bold leading-tight">Play on this device</p>
+          <p className="mt-1 text-sm text-ink-soft">Race the clock on your own and chase a high score.</p>
+          <span className="relative isolate mt-4 flex w-full items-center justify-center gap-2 rounded-[16px] py-3.5 text-xl text-paper transition-transform group-active:translate-y-px">
+            <SketchFrame radius={16} wobble={1.1} strokeWidth={2.8} fill="ink" />
+            Start playing
+            <SketchIcon name="send" className="h-5 w-5" strokeWidth={2.4} />
+          </span>
         </Link>
 
         <SketchPanel className="p-5 sm:p-6" draw>

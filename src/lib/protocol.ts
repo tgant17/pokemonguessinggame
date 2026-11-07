@@ -61,7 +61,16 @@ export type RoomEventDetail =
       // Missing from room servers that predate it.
       color?: string | null;
     }
-  | { kind: "rename"; playerId: string; from: string; to: string };
+  | {
+      kind: "rename";
+      playerId: string;
+      from: string;
+      to: string;
+      // The auras before and after, so the line shows each name in the color it had.
+      // Missing from room servers that predate it.
+      fromColor?: string | null;
+      toColor?: string | null;
+    };
 
 export type RoomEvent = RoomEventDetail & {
   id: number;
@@ -86,7 +95,8 @@ export type ServerMessage = RoomSnapshot | { type: "error"; message: string };
 export type ClientMessage =
   | { type: "join"; name: string; partner: PokemonSprite | null; profile: Profile }
   | { type: "profile"; profile: Profile }
-  | { type: "rename"; name: string }
+  // A new name can bring a new aura with it, so the chat line shows the change in one go.
+  | { type: "rename"; name: string; profile?: Profile }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
   | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] }
@@ -178,7 +188,8 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
       return { type: "profile", profile: cleanProfile(data.profile) };
     case "rename": {
       const name = cleanName(data.name);
-      return name ? { type: "rename", name } : null;
+      if (!name) return null;
+      return data.profile == null ? { type: "rename", name } : { type: "rename", name, profile: cleanProfile(data.profile) };
     }
     case "start": {
       const settings = parseSettings(data.settings);

@@ -47,7 +47,7 @@ Then pick **Multiplayer** on the home page and use **Create a room**. In develop
 - The first player to join hosts and picks the settings. If they're away, the next connected player can start; between games the host can hand hosting to someone else with **Make host**.
 - Players who have left are dropped from the list when the next game starts (or when the room is full and someone new joins). A room that everyone has left is wiped after 5 minutes.
 - To join, each player writes a name of up to 10 characters and picks a partner from three random Pokémon. Stuck for a name? The die next to the name box mashes two random Pokémon together (Pikachu + Charizard → Pikazard). Roll again as often as you like. The partner shows as a little pixel sprite next to their name in the players list and in the room's chat.
-- The chat log on the top screen announces everyone who joins (with their partner, in the aura they joined with) and every name change (one line each time someone saves a new name). Something that happens mid-game appears just before the round it happened in, and each new game starts a fresh log.
+- The chat log on the top screen announces everyone who joins (with their partner, in the aura they joined with) and every name change (one line each time someone saves a new name, with the old and new name tags in the auras they had). Something that happens mid-game appears just before the round it happened in, and each new game starts a fresh log.
 - Rooms hold up to 12 players.
 
 ## Deployment (Vercel)

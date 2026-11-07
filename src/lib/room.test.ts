@@ -323,6 +323,11 @@ test("players can change their name after joining, and everyone sees it", () => 
   assert.deepEqual(parse({ type: "rename", name: "  Brock \n of Pewter " }), { type: "rename", name: "Brock of P" });
   assert.equal(parse({ type: "rename", name: "   " }), null);
   assert.equal(parse({ type: "rename", name: 42 }), null);
+  assert.deepEqual(
+    parse({ type: "rename", name: "Red", profile: { color: "#0088ff" } }),
+    { type: "rename", name: "Red", profile: { color: "#0088ff" } },
+    "a new aura can come along with the name",
+  );
 });
 
 // The chat log as "Ash joined" / "Ash→Red" lines, with the round each happened in ("lobby" between games).
@@ -360,6 +365,23 @@ test("a join line keeps the aura the player joined with", () => {
   room.handle("brock", { type: "profile", profile: { color: "#0088ff" } }, T0 + 1000);
   const line = room.snapshotFor("ash", T0 + 1000).events?.at(-1);
   assert.equal(line?.kind === "join" && line.color, "#ff8800");
+});
+
+test("a rename line shows the old name in its old aura and the new name in its new one", () => {
+  const room = twoPlayerRoom();
+  room.handle("ash", { type: "profile", profile: { color: "#ff8800" } }, T0);
+  room.handle("ash", { type: "rename", name: "Red", profile: { color: "#0088ff" } }, T0);
+  const auras = () => {
+    const line = room.snapshotFor("misty", T0).events?.at(-1);
+    return line?.kind === "rename" && [line.from, line.fromColor, line.to, line.toColor];
+  };
+  assert.deepEqual(auras(), ["Ash", "#ff8800", "Red", "#0088ff"]);
+  const ash = room.snapshotFor("misty", T0).players.find((player) => player.id === "ash");
+  assert.equal(ash?.profile.color, "#0088ff", "the new aura takes along with the name");
+
+  // A rename on its own keeps the aura.
+  room.handle("ash", { type: "rename", name: "Ash" }, T0);
+  assert.deepEqual(auras(), ["Red", "#0088ff", "Ash", "#0088ff"]);
 });
 
 test("every confirmed name change gets its own line, however quickly they come", () => {

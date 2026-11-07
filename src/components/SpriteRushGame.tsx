@@ -218,20 +218,17 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     [inRoom, myName, room?.me?.name, room?.me?.partner, profile],
   );
 
-  // Keep the room's copy of your color in step with what you pick here. The name tag only saves a color
-  // once it's confirmed, so each change goes straight to the room.
-  const { updateProfile } = roomGame;
+  // Keep the room's copy of your name and aura in step with what you save on your name tag. A new name goes
+  // with your aura, so its line in the chat log can show the old tag and the new one.
+  const { rename, updateProfile } = roomGame;
+  const roomName = room?.me?.name;
   const roomProfile = room?.me?.profile;
   useEffect(() => {
-    if (roomProfile && profile.color && roomProfile.color !== profile.color) updateProfile(profile);
-  }, [roomProfile, profile, updateProfile]);
-
-  // Same for your name, which can be changed after joining; each saved change also goes in the chat log.
-  const { rename } = roomGame;
-  const roomName = room?.me?.name;
-  useEffect(() => {
-    if (roomName && myName && roomName !== myName) rename(myName);
-  }, [roomName, myName, rename]);
+    if (!roomName || !roomProfile) return;
+    if (myName && roomName !== myName) rename(myName, profile.color ? profile : undefined);
+    // An aura on its own (and, on room servers that predate renames carrying one, the aura after a rename).
+    else if (profile.color && roomProfile.color !== profile.color) updateProfile(profile);
+  }, [roomName, roomProfile, myName, profile, rename, updateProfile]);
   useEffect(() => {
     tagRef.current = currentTag;
   }, [currentTag]);
@@ -613,21 +610,24 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
   // Joins and renames in a room, in the chat log. A join is a chat message with the player's name tag and partner.
   const renderRoomEvent = (event: RoomEvent) => {
+    // Lines keep the auras players had at the time, even after they pick new ones. Room servers that predate
+    // that don't send them, so there a line falls back to the player's current aura.
+    const currentColor = () =>
+      event.playerId === room?.you
+        ? profile.color
+        : room?.players.find((player) => player.id === event.playerId)?.profile.color;
     if (event.kind === "rename") {
       return (
         <Notice key={`event-${event.id}`}>
-          <span className="text-ink">{event.from}</span> is now <span className="text-ink">{event.to}</span>
+          <span className="inline-flex flex-wrap items-center justify-center gap-1.5">
+            <NameTag label={event.from} color={event.fromColor !== undefined ? event.fromColor : currentColor()} />
+            is now
+            <NameTag label={event.to} color={event.toColor !== undefined ? event.toColor : currentColor()} />
+          </span>
         </Notice>
       );
     }
-    // The line keeps the aura the player joined with, even after they pick a new one. Room servers that
-    // predate that don't send it, so there it falls back to the player's current aura.
-    const color =
-      event.color !== undefined
-        ? event.color
-        : event.playerId === room?.you
-          ? profile.color
-          : room?.players.find((player) => player.id === event.playerId)?.profile.color;
+    const color = event.color !== undefined ? event.color : currentColor();
     return (
       <div key={`event-${event.id}`} className="message-in relative isolate flex items-center gap-2.5 py-2 pl-2.5 pr-3">
         <SketchFrame radius={12} wobble={0.9} strokeWidth={2.2} fill="ruled" />

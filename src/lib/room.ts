@@ -90,7 +90,7 @@ export class RoomState {
         this.players.set(id, { id, name: message.name, partner: message.partner, profile: message.profile });
         if (!this.hostId) this.hostId = id;
         // Joining again (say, a double-tapped button) isn't news, unless it changed the name.
-        if (existing) this.logRename(id, existing.name, message.name);
+        if (existing) this.logRename(existing, message.name, message.profile.color);
         else {
           const { name, partner, profile } = message;
           this.log({ kind: "join", playerId: id, name, partner, color: profile.color });
@@ -106,8 +106,9 @@ export class RoomState {
       case "rename": {
         const player = this.players.get(id);
         if (!player) return "Join the room first.";
-        this.players.set(id, { ...player, name: message.name });
-        this.logRename(id, player.name, message.name);
+        const profile = message.profile ?? player.profile;
+        this.players.set(id, { ...player, name: message.name, profile });
+        this.logRename(player, message.name, profile.color);
         break;
       }
       case "start": {
@@ -236,8 +237,9 @@ export class RoomState {
   }
 
   // Names are only sent once the player confirms them, so every change is news of its own.
-  private logRename(id: string, from: string, to: string) {
-    if (from !== to) this.log({ kind: "rename", playerId: id, from, to });
+  private logRename(player: Player, to: string, toColor: string | null) {
+    if (player.name === to) return;
+    this.log({ kind: "rename", playerId: player.id, from: player.name, to, fromColor: player.profile.color, toColor });
   }
 
   private enterWaiting(now: number) {

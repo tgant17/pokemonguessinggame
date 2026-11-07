@@ -30,6 +30,7 @@ import {
   type RoundOutcome,
   type RoundStatus,
 } from "@/lib/game";
+import type { GameSettings } from "@/lib/engine";
 import { useLocalGame, type GameController, type RoundResultEvent } from "@/hooks/useLocalGame";
 import { multiplayerAvailable, useRoomGame } from "@/hooks/useRoomGame";
 import { cleanName, type RoomEvent } from "@/lib/protocol";
@@ -90,6 +91,11 @@ const TIMER_OPTIONS = [
 ];
 // Timers shorter than Normal's 8-second default get the "blitz" treatment so the harder choice stands out.
 const isBlitzTime = (seconds: number) => seconds < MODE_CONFIG.normal.defaultTime;
+const sameSettings = (a: GameSettings, b: GameSettings) =>
+  a.mode === b.mode &&
+  a.totalRounds === b.totalRounds &&
+  a.questionTime === b.questionTime &&
+  !!a.winnerTakesAll === !!b.winnerTakesAll;
 // The timer starts to shake in the last few seconds.
 const URGENT_SECONDS = 3;
 
@@ -344,6 +350,36 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     setSelection({ round: -1, ids: [] });
     setHistory([]);
   }, [roomGameId]);
+
+  // In a room only the host picks the options, and everyone else sees them change as they're picked.
+  // Players who aren't hosting copy the room's options into their own setup panel, so if hosting passes to
+  // them they carry on from there. A host does the same once when they take over (or reload the page), then
+  // sends each new pick to the room.
+  const { shareSettings } = roomGame;
+  const roomJoined = !!room?.joined;
+  const roomIsHost = !!room?.isHost;
+  const roomSettings = room?.settings ?? null;
+  const followRoomSettings = useRef(true);
+  useEffect(() => {
+    if (!roomJoined) return;
+    const picked: GameSettings = { mode: setupMode, totalRounds: setupRounds, questionTime: setupTime };
+    if (setupWinnerTakesAll) picked.winnerTakesAll = true;
+    const inStep = roomSettings !== null && sameSettings(roomSettings, picked);
+    if (!roomIsHost || followRoomSettings.current) {
+      followRoomSettings.current = !roomIsHost;
+      if (roomSettings && !inStep) {
+        setMode(roomSettings.mode);
+        setTotalRounds(roomSettings.totalRounds);
+        setQuestionTime(roomSettings.questionTime);
+        setWinnerTakesAll(!!roomSettings.winnerTakesAll);
+        return;
+      }
+      if (!roomIsHost) return;
+    }
+    if (!inStep) shareSettings(picked);
+  }, [roomJoined, roomIsHost, roomSettings, setupMode, setupRounds, setupTime, setupWinnerTakesAll, shareSettings]);
+  // Everyone but the host sees the options grayed out.
+  const optionsLocked = !!room && !room.isHost;
 
   // Whether the log is scrolled down to its newest line. Chat only pulls the log down if so, so scrolling back
   // to read isn't interrupted; otherwise a "new messages" button appears instead.
@@ -937,8 +973,8 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
           role="switch"
           aria-checked={setupWinnerTakesAll}
           onClick={() => setWinnerTakesAll((prev) => !prev)}
-          disabled={isPreparing}
-          className={`${choiceButtonClass(false)} flex items-center gap-3 px-3 py-2.5 text-left`}
+          disabled={isPreparing || optionsLocked}
+          className={`${choiceButtonClass(false)} flex items-center gap-3 px-3 py-2.5 text-left ${optionsLocked ? "opacity-50" : ""}`}
         >
           <SketchFrame radius={12} wobble={0.9} strokeWidth={2.4} fill="paper" />
           <span className="min-w-0 flex-1">
@@ -963,7 +999,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-2">
         <SectionLabel>Mode</SectionLabel>
-        <div className="grid grid-cols-3 gap-2">
+        <div className={`grid grid-cols-3 gap-2 ${optionsLocked ? "opacity-50" : ""}`}>
           {(Object.keys(MODE_CONFIG) as GameMode[]).map((value) => {
             const selected = mode === value;
             return (
@@ -971,7 +1007,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                 key={value}
                 type="button"
                 onClick={() => selectMode(value)}
-                disabled={isPreparing}
+                disabled={isPreparing || optionsLocked}
                 aria-pressed={selected}
                 className={`${choiceButtonClass(selected)} px-2 py-2.5 text-left min-[380px]:px-2.5 sm:px-3`}
               >
@@ -994,7 +1030,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       <div className="grid gap-4 sm:grid-cols-[auto,1fr] sm:gap-6">
         <div className="flex flex-col gap-2">
           <SectionLabel>Rounds</SectionLabel>
-          <div className="flex gap-2">
+          <div className={`flex gap-2 ${optionsLocked ? "opacity-50" : ""}`}>
             {ROUND_OPTIONS.map((value) => {
               const selected = totalRounds === value;
               return (
@@ -1002,7 +1038,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   key={value}
                   type="button"
                   onClick={() => setTotalRounds(value)}
-                  disabled={isPreparing}
+                  disabled={isPreparing || optionsLocked}
                   aria-pressed={selected}
                   aria-label={`${value} rounds`}
                   className={`${choiceButtonClass(selected)} flex h-[3.75rem] min-w-[3.5rem] items-center justify-center px-3 text-lg sm:min-w-[3.75rem]`}
@@ -1017,7 +1053,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
         <div className="flex flex-col gap-2">
           <SectionLabel>Timer</SectionLabel>
-          <div className="grid grid-cols-4 gap-2">
+          <div className={`grid grid-cols-4 gap-2 ${optionsLocked ? "opacity-50" : ""}`}>
             {TIMER_OPTIONS.map(({ seconds, pokemon, icon }) => {
               const selected = questionTime === seconds;
               return (
@@ -1025,7 +1061,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
                   key={seconds}
                   type="button"
                   onClick={() => selectQuestionTime(seconds)}
-                  disabled={isPreparing}
+                  disabled={isPreparing || optionsLocked}
                   aria-pressed={selected}
                   title={pokemon}
                   className={`${choiceButtonClass(selected)} flex h-[3.75rem] flex-col items-center justify-center px-1`}
@@ -1061,33 +1097,44 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
 
       {inRoom && renderExtras()}
 
-      <button
-        type="button"
-        onClick={prepareRounds}
-        disabled={isPreparing}
-        className={`relative isolate mt-1 flex w-full items-center justify-center gap-2 rounded-[16px] py-3.5 text-xl transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-wait ${
-          isPreparing ? "text-ink-soft" : "text-paper"
-        }`}
-      >
-        <SketchFrame
-          radius={16}
-          wobble={1.1}
-          strokeWidth={2.8}
-          fill={isPreparing ? "paper" : "ink"}
-          stroke={isPreparing ? "var(--ink-faint)" : "var(--ink)"}
-          dotted={isPreparing}
-        />
-        {isPreparing ? (
-          <>
-            Preparing questions<span className="blink">…</span>
-          </>
-        ) : (
-          <>
-            {gameState === "finished" ? "Play again" : "Start game"}
-            <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
-          </>
-        )}
-      </button>
+      {optionsLocked ? (
+        <div className="relative isolate mt-1 flex w-full flex-col items-center gap-0.5 rounded-[16px] px-3 py-3 text-center">
+          <SketchFrame radius={16} wobble={1.1} strokeWidth={2.8} fill="paper" stroke="var(--ink-faint)" dotted />
+          <p className="font-hand text-xl font-bold leading-tight">
+            {gameState === "finished" ? `Waiting for ${hostName} to start a rematch` : `Waiting for ${hostName} to start`}
+            <span className="blink">…</span>
+          </p>
+          <p className="text-xs text-ink-soft">Only {hostName} can change the options.</p>
+        </div>
+      ) : (
+        <button
+          type="button"
+          onClick={prepareRounds}
+          disabled={isPreparing}
+          className={`relative isolate mt-1 flex w-full items-center justify-center gap-2 rounded-[16px] py-3.5 text-xl transition-transform focus:outline-none focus-visible:outline-dashed focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ink enabled:active:translate-y-px disabled:cursor-wait ${
+            isPreparing ? "text-ink-soft" : "text-paper"
+          }`}
+        >
+          <SketchFrame
+            radius={16}
+            wobble={1.1}
+            strokeWidth={2.8}
+            fill={isPreparing ? "paper" : "ink"}
+            stroke={isPreparing ? "var(--ink-faint)" : "var(--ink)"}
+            dotted={isPreparing}
+          />
+          {isPreparing ? (
+            <>
+              Preparing questions<span className="blink">…</span>
+            </>
+          ) : (
+            <>
+              {gameState === "finished" ? "Play again" : "Start game"}
+              <SketchIcon name="send" className="h-6 w-6" strokeWidth={2.6} />
+            </>
+          )}
+        </button>
+      )}
     </div>
   );
 
@@ -1135,17 +1182,6 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
       // Clipboard can be blocked; the link is on screen to copy by hand.
     }
   };
-
-  const renderWaitingForHost = () => (
-    <div className="flex flex-col items-center gap-2 py-6 text-center">
-      <SketchIcon name="pokeball" className="h-12 w-12" strokeWidth={2} draw />
-      <p className="font-hand text-2xl font-bold leading-tight">
-        {gameState === "finished" ? "Waiting for a rematch" : "Waiting for the game to start"}
-        <span className="blink">…</span>
-      </p>
-      <p className="text-sm text-ink-soft">{hostName} is hosting and picks the mode, rounds and timer.</p>
-    </div>
-  );
 
   const renderLockedIn = () => (
     <p aria-live="polite" className="mt-3 text-center font-hand text-xl font-bold leading-tight">
@@ -1383,7 +1419,7 @@ export default function SpriteRushGame({ roomCode = null }: { roomCode?: string 
             {gameState === "loading" ? (
               renderAnswers()
             ) : isSetup ? (
-              room && !room.isHost ? renderWaitingForHost() : renderGameSetup()
+              renderGameSetup()
             ) : (
               <>
                 {renderAnswers()}

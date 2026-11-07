@@ -15,6 +15,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - Mobile-friendly UI.
 - Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard. Each player joins with a name tag (up to 10 characters) and a partner picked from three random Pokémon.
 - Your name tag: tap it to change your name and pick its color on a color wheel. Both are remembered on your device, and in a room everyone sees changes right away.
+- **Extras → Winner takes all** (rooms only, toggle under the main settings): the first player to answer fully right takes the whole pot (speed points × number of players) and the round ends there. Everyone else scores 0 that round. You get one guess each, with no partial credit in Hard and Super Hard. If nobody gets it, nobody scores.
 
 ## Getting started
 

@@ -118,3 +118,31 @@ test("with several players the round reveals once everyone has answered or time 
   assert.equal(timedOut.answers.brock.outcome, "timeout");
   assert.deepEqual(timedOut.scores, { ash: 4, misty: 0, brock: 0 });
 });
+
+const wta: GameSettings = { mode: "normal", totalRounds: 2, questionTime: 8, winnerTakesAll: true };
+const startedTrio = (settings = wta, rounds = makeRounds(2, 4, 1)) =>
+  startClock(createGame(settings, rounds, ["a", "b", "c"]), T0);
+
+test("winner takes all: the first right answer takes the pot and ends the round", () => {
+  let game = submitAnswer(startedTrio(), "a", [2], T0 + 500); // wrong: a is out, round goes on
+  assert.equal(game.phase, "playing");
+  assert.deepEqual(game.answers.a, { pickedIds: [2], outcome: "wrong", delta: 0 });
+  assert.equal(submitAnswer(game, "a", [1], T0 + 600), game, "a wrong answer can't be retried");
+
+  game = submitAnswer(game, "b", [1], T0 + 2500); // 6 of 8 seconds left: 3 points × 3 players
+  assert.equal(game.phase, "reveal");
+  assert.deepEqual(game.answers.b, { pickedIds: [1], outcome: "correct", delta: 9, won: true });
+  assert.deepEqual(game.answers.c, { pickedIds: [], outcome: "timeout", delta: 0 });
+  assert.deepEqual(game.scores, { a: 0, b: 9, c: 0 });
+});
+
+test("winner takes all: no partial credit, and nobody scores if nobody gets it", () => {
+  const hard: GameSettings = { mode: "hard", totalRounds: 2, questionTime: 10, winnerTakesAll: true };
+  let game = startedTrio(hard, makeRounds(2, 6, 2));
+  game = submitAnswer(game, "a", [1, 3], T0);
+  assert.deepEqual(game.answers.a, { pickedIds: [1, 3], outcome: "partial", delta: 0 });
+  game = submitAnswer(game, "b", [4, 5], T0);
+  game = tick(game, T0 + 10_000);
+  assert.equal(game.phase, "reveal");
+  assert.deepEqual(game.scores, { a: 0, b: 0, c: 0 });
+});

@@ -142,8 +142,9 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
     const key = `${game.gameId}:${game.roundIndex}`;
     if (reported.current === key) return;
     reported.current = key;
-    onRoundResultRef.current({ roundIndex: game.roundIndex, round: game.round, answer: game.myAnswer });
-  }, [game]);
+    const winnerName = snapshot?.players.find((player) => player.lastResult?.won)?.name;
+    onRoundResultRef.current({ roundIndex: game.roundIndex, round: game.round, answer: game.myAnswer, winnerName });
+  }, [game, snapshot]);
 
   const view = useMemo<GameView | null>(() => {
     if (!game) return null;

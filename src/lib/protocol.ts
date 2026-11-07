@@ -111,11 +111,14 @@ const parseSprite = (value: unknown): PokemonSprite | null => {
 
 const parseSettings = (value: unknown): GameSettings | null => {
   if (!isObject(value)) return null;
-  const { mode, totalRounds, questionTime } = value;
+  const { mode, totalRounds, questionTime, winnerTakesAll } = value;
   if (typeof mode !== "string" || !(mode in MODE_CONFIG)) return null;
   if (typeof totalRounds !== "number" || !ROUND_OPTIONS.includes(totalRounds)) return null;
   if (!Number.isInteger(questionTime) || (questionTime as number) < 3 || (questionTime as number) > 60) return null;
-  return { mode: mode as GameMode, totalRounds, questionTime: questionTime as number };
+  if (winnerTakesAll !== undefined && typeof winnerTakesAll !== "boolean") return null;
+  const settings: GameSettings = { mode: mode as GameMode, totalRounds, questionTime: questionTime as number };
+  if (winnerTakesAll) settings.winnerTakesAll = true;
+  return settings;
 };
 
 const parseRound = (value: unknown, mode: GameMode): RoundData | null => {

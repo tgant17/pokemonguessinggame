@@ -266,6 +266,9 @@ test("client messages are validated", () => {
   assert.equal(parse({ ...good, rounds: makeRounds(4) }), null, "wrong round count");
   assert.equal(parse({ ...good, settings: { ...settings, totalRounds: 7 } }), null, "not a round option");
   assert.equal(parse({ ...good, settings: { ...settings, mode: "impossible" } }), null);
+  assert.equal(parse({ ...good, settings: { ...settings, winnerTakesAll: "yes" } }), null, "winnerTakesAll must be a boolean");
+  const wta = parse({ ...good, settings: { ...settings, winnerTakesAll: true } });
+  assert.equal(wta?.type === "start" && wta.settings.winnerTakesAll, true);
   const evil = makeRounds(5);
   evil[2].options[1] = { ...evil[2].options[1], spriteUrl: "javascript:alert(1)" };
   assert.equal(parse({ ...good, rounds: evil }), null, "sprite URLs must be from known hosts");

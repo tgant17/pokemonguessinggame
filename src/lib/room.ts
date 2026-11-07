@@ -4,6 +4,7 @@
 import { closeRound, createGame, startClock, submitAnswer, tick, type GameState } from "./engine.ts";
 import type { PokemonSprite } from "./game.ts";
 import { MAX_PLAYERS, type ClientMessage, type PlayerInfo, type RoomSnapshot } from "./protocol.ts";
+import type { Profile } from "./profile.ts";
 
 // How long a new round waits for everyone's sprites to load before starting the clock anyway.
 export const READY_TIMEOUT_MS = 4000;
@@ -11,7 +12,7 @@ export const READY_TIMEOUT_MS = 4000;
 // network drop doesn't end the round (or start the clock) without them.
 export const REJOIN_GRACE_MS = 3000;
 
-type Player = { id: string; name: string; partner: PokemonSprite | null };
+type Player = { id: string; name: string; partner: PokemonSprite | null; profile: Profile };
 
 export class RoomState {
   readonly code: string;
@@ -74,8 +75,20 @@ export class RoomState {
           if (!gone) return `This room is full (${MAX_PLAYERS} players).`;
           this.players.delete(gone);
         }
-        this.players.set(id, { id, name: message.name, partner: message.partner });
+        this.players.set(id, { id, name: message.name, partner: message.partner, profile: message.profile });
         if (!this.hostId) this.hostId = id;
+        break;
+      }
+      case "profile": {
+        const player = this.players.get(id);
+        if (!player) return "Join the room first.";
+        this.players.set(id, { ...player, profile: message.profile });
+        break;
+      }
+      case "rename": {
+        const player = this.players.get(id);
+        if (!player) return "Join the room first.";
+        this.players.set(id, { ...player, name: message.name });
         break;
       }
       case "start": {
@@ -159,6 +172,7 @@ export class RoomState {
       id: player.id,
       name: player.name,
       partner: player.partner,
+      profile: player.profile,
       connected: this.isConnected(player.id),
       score: game?.scores[player.id] ?? 0,
       answered: !!game?.answers[player.id],

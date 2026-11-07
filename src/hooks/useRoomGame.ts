@@ -4,6 +4,7 @@ import usePartySocket from "partysocket/react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { GameSettings } from "@/lib/engine";
 import type { PokemonSprite, RoundData } from "@/lib/game";
+import type { Profile } from "@/lib/profile";
 import type { ClientMessage, PlayerInfo, RoomSnapshot, ServerMessage } from "@/lib/protocol";
 import type { GameController, GameView, RoundResultEvent } from "./useLocalGame";
 
@@ -54,8 +55,12 @@ export type RoomController = GameController & {
   room: RoomInfo | null;
   connected: boolean;
   error: string | null;
+  // Your name as last used on this device ("" if none yet). Solo play shows it too.
   savedName: string;
-  join: (name: string, partner: PokemonSprite) => void;
+  saveName: (name: string) => void;
+  join: (name: string, partner: PokemonSprite, profile: Profile) => void;
+  rename: (name: string) => void;
+  updateProfile: (profile: Profile) => void;
   startGame: (settings: GameSettings, rounds: RoundData[]) => void;
   makeHost: (playerId: string) => void;
 };
@@ -68,6 +73,9 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
   const [playerId, setPlayerId] = useState<string | null>(null);
   const [savedName, setSavedName] = useState("");
   useEffect(() => {
+    setSavedName(readStorage(PLAYER_NAME_KEY) ?? "");
+  }, []);
+  useEffect(() => {
     if (!code) return;
     let id = readStorage(PLAYER_ID_KEY);
     if (!id) {
@@ -75,8 +83,12 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
       writeStorage(PLAYER_ID_KEY, id);
     }
     setPlayerId(id);
-    setSavedName(readStorage(PLAYER_NAME_KEY) ?? "");
   }, [code]);
+
+  const saveName = useCallback((name: string) => {
+    writeStorage(PLAYER_NAME_KEY, name);
+    setSavedName(name);
+  }, []);
 
   const [received, setReceived] = useState<Received | null>(null);
   const [connected, setConnected] = useState(false);
@@ -185,14 +197,17 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
   );
 
   const join = useCallback(
-    (name: string, partner: PokemonSprite) => {
+    (name: string, partner: PokemonSprite, profile: Profile) => {
       setError(null);
-      writeStorage(PLAYER_NAME_KEY, name);
-      setSavedName(name);
-      send({ type: "join", name, partner });
+      saveName(name);
+      send({ type: "join", name, partner, profile });
     },
-    [send],
+    [send, saveName],
   );
+
+  const rename = useCallback((name: string) => send({ type: "rename", name }), [send]);
+
+  const updateProfile = useCallback((profile: Profile) => send({ type: "profile", profile }), [send]);
 
   const startGame = useCallback(
     (settings: GameSettings, rounds: RoundData[]) => {
@@ -204,5 +219,19 @@ export function useRoomGame(code: string | null, onRoundResult: (event: RoundRes
 
   const makeHost = useCallback((playerId: string) => send({ type: "makeHost", playerId }), [send]);
 
-  return { view, startClock, submit, room, connected, error, savedName, join, startGame, makeHost };
+  return {
+    view,
+    startClock,
+    submit,
+    room,
+    connected,
+    error,
+    savedName,
+    saveName,
+    join,
+    rename,
+    updateProfile,
+    startGame,
+    makeHost,
+  };
 }

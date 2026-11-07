@@ -14,6 +14,7 @@ Pokémon Guessing Game is a fast-paced party quiz built with Next.js. Each round
 - In Hard and Super Hard, naming only some of the stacked Pokémon earns partial points.
 - Mobile-friendly UI.
 - Online multiplayer: create a room, share the link or 4-letter code, and everyone plays on their own phone at the same time with a live scoreboard. Each player joins with a name tag (up to 10 characters) and a partner picked from three random Pokémon.
+- Your name tag: tap it to change your name and pick its color on a color wheel. Both are remembered on your device, and in a room everyone sees changes right away.
 - **Extras → Winner takes all** (rooms only, toggle under the main settings): the first player to answer fully right takes the whole pot (speed points × number of players) and the round ends there. Everyone else scores 0 that round. You get one guess each, with no partial credit in Hard and Super Hard. If nobody gets it, nobody scores.
 
 ## Getting started
@@ -35,7 +36,7 @@ Multiplayer rooms run on a small Cloudflare Worker (`party/room.ts`). In a secon
 npm run dev:party       # wrangler dev on port 8787, no Cloudflare account needed
 ```
 
-Then use **Create a room** on the home page. In development the site looks for the room server on port 8787 of whatever host served the page, so phones on the same Wi-Fi can join via your computer's IP address (for example http://192.168.1.20:3000/room/ABCD, with `npm run dev -- -H 0.0.0.0`).
+Then pick **Multiplayer** on the home page and use **Create a room**. In development the site looks for the room server on port 8787 of whatever host served the page, so phones on the same Wi-Fi can join via your computer's IP address (for example http://192.168.1.20:3000/room/ABCD, with `npm run dev -- -H 0.0.0.0`).
 
 ## How multiplayer works
 

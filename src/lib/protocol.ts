@@ -3,6 +3,7 @@
 
 import type { GamePhase, GameSettings, PlayerAnswer } from "./engine.ts";
 import { MODE_CONFIG, ROUND_OPTIONS, type GameMode, type PokemonSprite, type RoundData } from "./game.ts";
+import { cleanProfile, type Profile } from "./profile.ts";
 
 export const MAX_NAME_LENGTH = 10;
 export const MAX_PLAYERS = 12;
@@ -23,6 +24,8 @@ export type PlayerInfo = {
   name: string;
   // The Pokémon this player picked to play alongside them (null for clients that predate partners).
   partner: PokemonSprite | null;
+  // The name color this player picked, shown wherever their name appears.
+  profile: Profile;
   connected: boolean;
   score: number;
   // True once this player has locked in an answer for the current round.
@@ -59,7 +62,9 @@ export type RoomSnapshot = {
 export type ServerMessage = RoomSnapshot | { type: "error"; message: string };
 
 export type ClientMessage =
-  | { type: "join"; name: string; partner: PokemonSprite | null }
+  | { type: "join"; name: string; partner: PokemonSprite | null; profile: Profile }
+  | { type: "profile"; profile: Profile }
+  | { type: "rename"; name: string }
   | { type: "start"; settings: GameSettings; rounds: RoundData[] }
   | { type: "ready"; gameId: number; roundIndex: number }
   | { type: "answer"; gameId: number; roundIndex: number; pickedIds: number[] }
@@ -145,7 +150,13 @@ export const parseClientMessage = (raw: unknown): ClientMessage | null => {
       // A partner is optional so pages loaded before partners existed can still join, but must be valid if sent.
       const partner = data.partner == null ? null : parseSprite(data.partner);
       if (!name || (data.partner != null && !partner)) return null;
-      return { type: "join", name, partner };
+      return { type: "join", name, partner, profile: cleanProfile(data.profile) };
+    }
+    case "profile":
+      return { type: "profile", profile: cleanProfile(data.profile) };
+    case "rename": {
+      const name = cleanName(data.name);
+      return name ? { type: "rename", name } : null;
     }
     case "start": {
       const settings = parseSettings(data.settings);

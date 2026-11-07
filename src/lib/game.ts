@@ -97,9 +97,10 @@ export const formatName = (name: string) =>
 export const joinNames = (names: string[]) =>
   names.length <= 2 ? names.join(" and ") : `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 
-// A small pixel sprite for showing beside an option's name. Built from the id alone, so rounds sent
-// through a room don't need to carry it. (PokeAPI's menu icons stop at #809; front sprites cover every id.)
-export const optionIconUrl = (id: number) =>
+// A small pixel sprite, used as an icon: beside an option's name in the stacked modes, and for each player's
+// partner in a room. Built from the id alone, so rounds and partners sent through a room don't need to carry it.
+// (PokeAPI's menu icons stop at #809; front sprites cover every id.)
+export const pokemonIconUrl = (id: number) =>
   `https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/pokemon/${id}.png`;
 
 // Stacked modes (Hard, Super Hard) put icons beside the options once half the round's clock has run down,

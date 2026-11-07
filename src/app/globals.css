@@ -53,6 +53,17 @@ body {
   animation: blink 1.1s steps(1) infinite;
 }
 
+/* The die tumbles when it's rolled for a new name. */
+.dice-roll {
+  animation: dice-roll 0.45s cubic-bezier(0.2, 0.8, 0.3, 1);
+}
+
+@keyframes dice-roll {
+  from {
+    transform: rotate(-200deg) scale(0.7);
+  }
+}
+
 @keyframes blink {
   50% {
     opacity: 0;
@@ -79,7 +90,8 @@ button:not(:disabled):hover > svg > .sketch-fill-paper {
     stroke-dashoffset: 0;
   }
   .message-in,
-  .blink {
+  .blink,
+  .dice-roll {
     animation: none;
   }
 }

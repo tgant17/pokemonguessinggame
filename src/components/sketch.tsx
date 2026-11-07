@@ -284,7 +284,7 @@ export function SketchFrame({
   );
 }
 
-type IconName = "check" | "cross" | "clock" | "bolt" | "send" | "pokeball" | "star" | "arrowDown";
+type IconName = "check" | "cross" | "clock" | "bolt" | "send" | "pokeball" | "star" | "arrowDown" | "dice";
 
 // Hand-authored strokes on a 24×24 grid, drawn with round caps like the outlines.
 const ICON_STROKES: Record<IconName, string[]> = {
@@ -303,6 +303,13 @@ const ICON_STROKES: Record<IconName, string[]> = {
   ],
   star: ["M12 3.6l2.5 5.6 6 .6-4.6 4 1.4 6-5.3-3.2-5.3 3.2 1.4-6-4.6-4 6-.6z"],
   arrowDown: ["M12.2 4c-.1 5.3-.1 10.4 0 15.6", "M6.6 14.2c1.9 1.9 3.8 3.8 5.6 5.6 1.8-1.9 3.6-3.7 5.5-5.5"],
+  // A die showing three: pips are tiny circles, so the round caps make them read as dots.
+  dice: [
+    "M6.4 3.9c3.8-.2 7.5-.2 11.2.1 1.4.1 2.3 1 2.4 2.4.2 3.8.2 7.4 0 11.2-.1 1.4-1 2.3-2.4 2.4-3.7.2-7.4.2-11.1 0-1.4-.1-2.3-1-2.4-2.4-.2-3.7-.2-7.4 0-11.1.1-1.5 1-2.5 2.3-2.6",
+    "M9 8.4a.6.6 0 1 1-1.2 0 .6.6 0 1 1 1.2 0",
+    "M12.6 12a.6.6 0 1 1-1.2 0 .6.6 0 1 1 1.2 0",
+    "M16.2 15.6a.6.6 0 1 1-1.2 0 .6.6 0 1 1 1.2 0",
+  ],
 };
 
 type SketchIconProps = {
